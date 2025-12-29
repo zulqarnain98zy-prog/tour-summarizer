@@ -6,6 +6,16 @@ import google.generativeai as genai
 # Page Config
 st.set_page_config(page_title="Tour Summarizer Pro", page_icon="✈️", layout="wide")
 
+# --- Hide Streamlit Style ---
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
+
 st.title("✈️ Tour Activity Summarizer (Custom Order)")
 st.markdown("Paste a tour link to generate a summary with your specific criteria arrangement.")
 
@@ -135,3 +145,4 @@ if st.button("Generate Summary"):
                         st.error(f"AI Error: {e}")
                 else:
                     st.error("❌ Could not read the website.")
+
