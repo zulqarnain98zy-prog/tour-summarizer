@@ -43,10 +43,21 @@ def extract_text_from_url(url):
         return None
 
 def generate_summary(text, key):
-    # Configure Gemini
     genai.configure(api_key=key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
     
+    # Try the latest Flash model first
+    try:
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
+        return run_model(model, text)
+    except Exception:
+        # If that fails, fallback to the standard Pro model (very stable)
+        try:
+            model = genai.GenerativeModel('gemini-pro')
+            return run_model(model, text)
+        except Exception as e:
+            return f"Error: {e}"
+
+def run_model(model, text):
     prompt = """
     Analyze the following tour description and summarize it strictly into this format:
     
@@ -60,7 +71,6 @@ def generate_summary(text, key):
     
     Tour Text:
     """ + text
-
     response = model.generate_content(prompt)
     return response.text
 
