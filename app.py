@@ -6,8 +6,8 @@ import google.generativeai as genai
 # Page Config
 st.set_page_config(page_title="Tour Summarizer", page_icon="✈️", layout="wide")
 
-st.title("✈️ Tour Activity Summarizer (Free Version)")
-st.markdown("Paste a tour link (GetYourGuide, Viator, Klook, etc.) to generate a standard summary.")
+st.title("✈️ Tour Activity Summarizer (Smart Fix)")
+st.markdown("Paste a tour link to generate a standard summary.")
 
 # --- API Key Handling ---
 if "GEMINI_API_KEY" in st.secrets:
@@ -16,6 +16,40 @@ else:
     api_key = st.sidebar.text_input("Enter Gemini API Key", type="password")
 
 # --- Functions ---
+def get_working_model():
+    """
+    Automatically finds a model that works for your API key
+    so you don't get 404 errors.
+    """
+    try:
+        # Get list of all models available to your key
+        available_models = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                available_models.append(m.name)
+        
+        # Priority list: Try to find these specific ones first
+        preferred_order = [
+            'models/gemini-1.5-flash',
+            'models/gemini-1.5-flash-001',
+            'models/gemini-1.5-pro',
+            'models/gemini-1.5-pro-001',
+            'models/gemini-pro'
+        ]
+        
+        # Check if any preferred model is available
+        for model in preferred_order:
+            if model in available_models:
+                return model
+        
+        # If none of the preferred ones exist, just grab the first valid one
+        if available_models:
+            return available_models[0]
+            
+        return None
+    except Exception as e:
+        return None
+
 def extract_text_from_url(url):
     try:
         headers = {
@@ -42,22 +76,12 @@ def extract_text_from_url(url):
     except Exception as e:
         return None
 
-def generate_summary(text, key):
+def generate_summary(text, key, model_name):
     genai.configure(api_key=key)
     
-    # Try the latest Flash model first
-    try:
-        model = genai.GenerativeModel('gemini-1.5-flash-latest')
-        return run_model(model, text)
-    except Exception:
-        # If that fails, fallback to the standard Pro model (very stable)
-        try:
-            model = genai.GenerativeModel('gemini-pro')
-            return run_model(model, text)
-        except Exception as e:
-            return f"Error: {e}"
-
-def run_model(model, text):
+    # Use the model name we found earlier
+    model = genai.GenerativeModel(model_name)
+    
     prompt = """
     Analyze the following tour description and summarize it strictly into this format:
     
@@ -71,6 +95,7 @@ def run_model(model, text):
     
     Tour Text:
     """ + text
+    
     response = model.generate_content(prompt)
     return response.text
 
@@ -83,18 +108,29 @@ if st.button("Generate Summary"):
     elif not url:
         st.warning("⚠️ Please paste a URL.")
     else:
-        with st.spinner("Analyzing tour content..."):
-            raw_text = extract_text_from_url(url)
-            
-            if raw_text == "403":
-                st.error("🚫 Access Denied: This website blocks automated scrapers. Try copying the text manually.")
-            elif raw_text:
-                try:
-                    summary = generate_summary(raw_text, api_key)
-                    st.success("Summary Generated!")
-                    st.markdown("---")
-                    st.markdown(summary)
-                except Exception as e:
-                    st.error(f"AI Error: {e}")
-            else:
-                st.error("❌ Could not read the website.")
+        # Configure the API first to check models
+        genai.configure(api_key=api_key)
+        
+        # 1. FIND A WORKING MODEL
+        with st.spinner("Finding the best AI model..."):
+            model_name = get_working_model()
+        
+        if not model_name:
+            st.error("❌ No available models found for this API key. Please check your key permissions in Google AI Studio.")
+        else:
+            # 2. EXTRACT AND SUMMARIZE
+            with st.spinner(f"Reading website using {model_name}..."):
+                raw_text = extract_text_from_url(url)
+                
+                if raw_text == "403":
+                    st.error("🚫 Access Denied: This website blocks automated scrapers. Try copying the text manually.")
+                elif raw_text:
+                    try:
+                        summary = generate_summary(raw_text, api_key, model_name)
+                        st.success("Summary Generated!")
+                        st.markdown("---")
+                        st.markdown(summary)
+                    except Exception as e:
+                        st.error(f"AI Error: {e}")
+                else:
+                    st.error("❌ Could not read the website.")
