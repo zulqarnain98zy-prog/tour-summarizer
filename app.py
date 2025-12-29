@@ -4,10 +4,10 @@ from bs4 import BeautifulSoup
 import google.generativeai as genai
 
 # Page Config
-st.set_page_config(page_title="Tour Summarizer", page_icon="✈️", layout="wide")
+st.set_page_config(page_title="Tour Summarizer Pro", page_icon="✈️", layout="wide")
 
-st.title("✈️ Tour Activity Summarizer (Smart Fix)")
-st.markdown("Paste a tour link to generate a standard summary.")
+st.title("✈️ Tour Activity Summarizer (Expanded)")
+st.markdown("Paste a tour link to generate a summary with captions and eligibility info.")
 
 # --- API Key Handling ---
 if "GEMINI_API_KEY" in st.secrets:
@@ -19,30 +19,27 @@ else:
 def get_working_model():
     """
     Automatically finds a model that works for your API key
-    so you don't get 404 errors.
+    to avoid 404 errors.
     """
     try:
-        # Get list of all models available to your key
         available_models = []
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods:
                 available_models.append(m.name)
         
-        # Priority list: Try to find these specific ones first
+        # Priority list
         preferred_order = [
             'models/gemini-1.5-flash',
-            'models/gemini-1.5-flash-001',
+            'models/gemini-1.5-flash-latest',
             'models/gemini-1.5-pro',
-            'models/gemini-1.5-pro-001',
+            'models/gemini-1.5-pro-latest',
             'models/gemini-pro'
         ]
         
-        # Check if any preferred model is available
         for model in preferred_order:
             if model in available_models:
                 return model
         
-        # If none of the preferred ones exist, just grab the first valid one
         if available_models:
             return available_models[0]
             
@@ -78,10 +75,9 @@ def extract_text_from_url(url):
 
 def generate_summary(text, key, model_name):
     genai.configure(api_key=key)
-    
-    # Use the model name we found earlier
     model = genai.GenerativeModel(model_name)
     
+    # --- UPDATED PROMPT WITH NEW CRITERIA ---
     prompt = """
     Analyze the following tour description and summarize it strictly into this format:
     
@@ -92,6 +88,14 @@ def generate_summary(text, key, model_name):
     5. **Inclusions & Exclusions**: Two separate lists.
     6. **Additional Information**: Key logistics (what to bring, restrictions).
     7. **Start Time and End Time**: Specific times if mentioned, otherwise general timing.
+    8. **Child Policy & Eligibility**: Age limits, ticket rules, or height restrictions.
+    9. **Accessibility**: Info for persons with disabilities (wheelchair access, mobility issues).
+    10. **Group Size**: Min/Max pax (if mentioned).
+
+    ---
+    **Social Media Content**
+    Generate 10 engaging Instagram/Social Media captions relevant to this activity. 
+    Mix short, punchy captions with longer, descriptive ones. Use emojis.
     
     Tour Text:
     """ + text
@@ -108,26 +112,23 @@ if st.button("Generate Summary"):
     elif not url:
         st.warning("⚠️ Please paste a URL.")
     else:
-        # Configure the API first to check models
         genai.configure(api_key=api_key)
         
-        # 1. FIND A WORKING MODEL
         with st.spinner("Finding the best AI model..."):
             model_name = get_working_model()
         
         if not model_name:
-            st.error("❌ No available models found for this API key. Please check your key permissions in Google AI Studio.")
+            st.error("❌ No available models found. Check API Key.")
         else:
-            # 2. EXTRACT AND SUMMARIZE
-            with st.spinner(f"Reading website using {model_name}..."):
+            with st.spinner(f"Analyzing and writing captions using {model_name}..."):
                 raw_text = extract_text_from_url(url)
                 
                 if raw_text == "403":
-                    st.error("🚫 Access Denied: This website blocks automated scrapers. Try copying the text manually.")
+                    st.error("🚫 Access Denied: This website blocks automated scrapers.")
                 elif raw_text:
                     try:
                         summary = generate_summary(raw_text, api_key, model_name)
-                        st.success("Summary Generated!")
+                        st.success("Success!")
                         st.markdown("---")
                         st.markdown(summary)
                     except Exception as e:
