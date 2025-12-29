@@ -6,8 +6,8 @@ import google.generativeai as genai
 # Page Config
 st.set_page_config(page_title="Tour Summarizer Pro", page_icon="✈️", layout="wide")
 
-st.title("✈️ Tour Activity Summarizer (Expanded)")
-st.markdown("Paste a tour link to generate a summary with captions and eligibility info.")
+st.title("✈️ Tour Activity Summarizer (Custom Order)")
+st.markdown("Paste a tour link to generate a summary with your specific criteria arrangement.")
 
 # --- API Key Handling ---
 if "GEMINI_API_KEY" in st.secrets:
@@ -18,8 +18,7 @@ else:
 # --- Functions ---
 def get_working_model():
     """
-    Automatically finds a model that works for your API key
-    to avoid 404 errors.
+    Automatically finds a model that works for your API key.
     """
     try:
         available_models = []
@@ -27,12 +26,10 @@ def get_working_model():
             if 'generateContent' in m.supported_generation_methods:
                 available_models.append(m.name)
         
-        # Priority list
         preferred_order = [
             'models/gemini-1.5-flash',
             'models/gemini-1.5-flash-latest',
             'models/gemini-1.5-pro',
-            'models/gemini-1.5-pro-latest',
             'models/gemini-pro'
         ]
         
@@ -77,7 +74,7 @@ def generate_summary(text, key, model_name):
     genai.configure(api_key=key)
     model = genai.GenerativeModel(model_name)
     
-    # --- UPDATED PROMPT WITH NEW CRITERIA ---
+    # --- UPDATED PROMPT WITH REARRANGED CRITERIA ---
     prompt = """
     Analyze the following tour description and summarize it strictly into this format:
     
@@ -85,12 +82,15 @@ def generate_summary(text, key, model_name):
     2. **What to Expect**: A description under 800 characters.
     3. **Activity Duration**: The total time.
     4. **Full Itinerary**: A step-by-step list.
-    5. **Inclusions & Exclusions**: Two separate lists.
-    6. **Additional Information**: Key logistics (what to bring, restrictions).
-    7. **Start Time and End Time**: Specific times if mentioned, otherwise general timing.
+    5. **Start Time and End Time**: Specific times if mentioned, otherwise general timing (e.g., Morning/Afternoon).
+    6. **Inclusions & Exclusions**: Two separate lists.
+    7. **Additional Information**: Key logistics (what to bring, restrictions).
     8. **Child Policy & Eligibility**: Age limits, ticket rules, or height restrictions.
     9. **Accessibility**: Info for persons with disabilities (wheelchair access, mobility issues).
     10. **Group Size**: Min/Max pax (if mentioned).
+    11. **Unit Types & Prices**: List Adult, Child, Infant, Senior prices if available in the text. (Note: if prices are dynamic/hidden, mention "Check availability for pricing").
+    12. **Policies**: Cancellation policy and Confirmation type (instant/manual).
+    13. **SEO Keywords**: 3 high-traffic search keywords relevant to this specific activity.
 
     ---
     **Social Media Content**
@@ -120,7 +120,7 @@ if st.button("Generate Summary"):
         if not model_name:
             st.error("❌ No available models found. Check API Key.")
         else:
-            with st.spinner(f"Analyzing and writing captions using {model_name}..."):
+            with st.spinner(f"Generating summary with custom order using {model_name}..."):
                 raw_text = extract_text_from_url(url)
                 
                 if raw_text == "403":
