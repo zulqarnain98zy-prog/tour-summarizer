@@ -6,7 +6,7 @@ import google.generativeai as genai
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Tour Summarizer Pro", page_icon="✈️", layout="wide")
 
-# --- HIDE STREAMLIT BRANDING (OPTIONAL) ---
+# --- HIDE STREAMLIT BRANDING ---
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -16,8 +16,8 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-st.title("✈️ Tour Activity Summarizer")
-st.markdown("Generate standard summaries, SEO keywords, and policies instantly.")
+st.title("✈️ Global Tour Summarizer (Auto-Translate)")
+st.markdown("Paste a link in **any language** (English, Chinese, Spanish, etc.) and get a standard **English summary**.")
 
 # --- API KEY ---
 if "GEMINI_API_KEY" in st.secrets:
@@ -27,7 +27,6 @@ else:
 
 # --- HELPER FUNCTIONS ---
 def get_working_model():
-    """Finds a working Google Gemini model."""
     try:
         available_models = []
         for m in genai.list_models():
@@ -49,10 +48,8 @@ def get_working_model():
         return None
 
 def extract_text_from_url(url):
-    """
-    Uses Cloudscraper to bypass basic anti-bot protections.
-    """
     try:
+        # Browser emulation
         scraper = cloudscraper.create_scraper(browser='chrome')
         response = scraper.get(url, timeout=15)
         
@@ -63,17 +60,15 @@ def extract_text_from_url(url):
             
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        # Remove junk
         for script in soup(["script", "style", "nav", "footer", "iframe"]):
             script.extract()
             
         text = soup.get_text(separator=' ')
-        # Clean whitespace
         lines = (line.strip() for line in text.splitlines())
         chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
         text = '\n'.join(chunk for chunk in chunks if chunk)
         
-        return text[:20000] # Increased limit
+        return text[:25000] # Increased limit for foreign characters
     except Exception as e:
         return "ERROR"
 
@@ -81,8 +76,15 @@ def generate_summary(text, key, model_name):
     genai.configure(api_key=key)
     model = genai.GenerativeModel(model_name)
     
+    # --- UPDATED PROMPT FOR TRANSLATION ---
     prompt = """
-    Analyze the following tour description and summarize it strictly into this format:
+    You are an expert travel product manager.
+    Analyze the following tour description.
+    
+    **CRITICAL INSTRUCTION:** The source text might be in a foreign language (Spanish, Chinese, French, etc.).
+    You MUST translate all details and write the final response strictly in **ENGLISH**.
+    
+    Output format:
     
     1. **Highlights**: Exactly 4 bullet points.
     2. **What to Expect**: A description under 800 characters.
@@ -96,11 +98,12 @@ def generate_summary(text, key, model_name):
     10. **Group Size**: Min/Max pax (if mentioned).
     11. **Unit Types & Prices**: List Adult, Child, Infant, Senior prices if available.
     12. **Policies**: Cancellation policy and Confirmation type (instant/manual).
-    13. **SEO Keywords**: 3 high-traffic search keywords.
+    13. **SEO Keywords**: 3 high-traffic search keywords in English.
 
     ---
     **Social Media Content**
-    Generate 10 engaging Instagram/Social Media captions (mix of short & long). Use emojis.
+    Generate 10 engaging Instagram/Social Media captions in English. 
+    Mix short, punchy captions with longer, descriptive ones. Use emojis.
     
     Tour Text:
     """ + text
@@ -109,45 +112,43 @@ def generate_summary(text, key, model_name):
     return response.text
 
 # --- MAIN INTERFACE ---
-# Tabs allow user to choose method
 tab1, tab2 = st.tabs(["🔗 Paste Link", "📝 Paste Text (Fallback)"])
 
 # METHOD 1: URL
 with tab1:
-    url = st.text_input("Paste Tour Link Here")
-    if st.button("Generate from Link"):
+    url = st.text_input("Paste Tour Link Here (Any Language)")
+    if st.button("Generate English Summary"):
         if not api_key:
             st.warning("⚠️ Gemini API Key is missing.")
         elif not url:
             st.warning("⚠️ Please paste a URL.")
         else:
             genai.configure(api_key=api_key)
-            with st.spinner("Accessing website..."):
+            with st.spinner("Accessing website and translating..."):
                 raw_text = extract_text_from_url(url)
                 
-                # If blocked (403) or Error, advise user to use Tab 2
                 if raw_text == "403" or raw_text == "ERROR":
-                    st.error("🚫 Website Blocked: This site has strong security.")
-                    st.info("👉 **Solution:** Click the 'Paste Text (Fallback)' tab above. Copy all the text from the website manually (Ctrl+A, Ctrl+C) and paste it there. It works 100% of the time!")
+                    st.error("🚫 Website Blocked.")
+                    st.info("👉 Use the 'Paste Text' tab. Copy the foreign text manually and paste it there. The AI will translate it.")
                 elif raw_text:
                     model_name = get_working_model()
                     if model_name:
-                        with st.spinner(f"Summarizing with {model_name}..."):
+                        with st.spinner(f"Translating with {model_name}..."):
                             summary = generate_summary(raw_text, api_key, model_name)
-                            st.success("Success!")
+                            st.success("Translation & Summary Complete!")
                             st.markdown("---")
                             st.markdown(summary)
                     else:
-                        st.error("❌ No AI model found. Check API key.")
+                        st.error("❌ No AI model found.")
                 else:
-                    st.error("❌ Invalid URL or Connection Error.")
+                    st.error("❌ Invalid URL.")
 
 # METHOD 2: MANUAL TEXT
 with tab2:
-    st.info("💡 Use this if the link above fails. Go to the website, press **Ctrl+A** (Select All) then **Ctrl+C** (Copy), and paste here.")
-    manual_text = st.text_area("Paste Website Text Here", height=300)
+    st.info("💡 Copy text from a Chinese/French/Spanish website and paste it here. We will translate it.")
+    manual_text = st.text_area("Paste Foreign Text Here", height=300)
     
-    if st.button("Generate from Text"):
+    if st.button("Translate & Generate"):
         if not api_key:
             st.warning("⚠️ Gemini API Key is missing.")
         elif len(manual_text) < 50:
@@ -156,7 +157,7 @@ with tab2:
             genai.configure(api_key=api_key)
             model_name = get_working_model()
             if model_name:
-                with st.spinner(f"Reading your text..."):
+                with st.spinner(f"Translating..."):
                     summary = generate_summary(manual_text, api_key, model_name)
                     st.success("Success!")
                     st.markdown("---")
