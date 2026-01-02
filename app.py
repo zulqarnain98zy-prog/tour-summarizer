@@ -1,12 +1,12 @@
 import streamlit as st
-import requests
+import cloudscraper
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 
-# Page Config
+# --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Tour Summarizer Pro", page_icon="✈️", layout="wide")
 
-# --- Hide Streamlit Style ---
+# --- HIDE STREAMLIT BRANDING (OPTIONAL) ---
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -16,20 +16,18 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-st.title("✈️ Tour Activity Summarizer (Custom Order)")
-st.markdown("Paste a tour link to generate a summary with your specific criteria arrangement.")
+st.title("✈️ Tour Activity Summarizer")
+st.markdown("Generate standard summaries, SEO keywords, and policies instantly.")
 
-# --- API Key Handling ---
+# --- API KEY ---
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
 else:
     api_key = st.sidebar.text_input("Enter Gemini API Key", type="password")
 
-# --- Functions ---
+# --- HELPER FUNCTIONS ---
 def get_working_model():
-    """
-    Automatically finds a model that works for your API key.
-    """
+    """Finds a working Google Gemini model."""
     try:
         available_models = []
         for m in genai.list_models():
@@ -46,20 +44,17 @@ def get_working_model():
         for model in preferred_order:
             if model in available_models:
                 return model
-        
-        if available_models:
-            return available_models[0]
-            
-        return None
-    except Exception as e:
+        return available_models[0] if available_models else None
+    except Exception:
         return None
 
 def extract_text_from_url(url):
+    """
+    Uses Cloudscraper to bypass basic anti-bot protections.
+    """
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        response = requests.get(url, headers=headers, timeout=10)
+        scraper = cloudscraper.create_scraper(browser='chrome')
+        response = scraper.get(url, timeout=15)
         
         if response.status_code == 403:
             return "403"
@@ -68,23 +63,24 @@ def extract_text_from_url(url):
             
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        for script in soup(["script", "style", "nav", "footer"]):
+        # Remove junk
+        for script in soup(["script", "style", "nav", "footer", "iframe"]):
             script.extract()
             
         text = soup.get_text(separator=' ')
+        # Clean whitespace
         lines = (line.strip() for line in text.splitlines())
         chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
         text = '\n'.join(chunk for chunk in chunks if chunk)
         
-        return text[:15000]
+        return text[:20000] # Increased limit
     except Exception as e:
-        return None
+        return "ERROR"
 
 def generate_summary(text, key, model_name):
     genai.configure(api_key=key)
     model = genai.GenerativeModel(model_name)
     
-    # --- UPDATED PROMPT WITH REARRANGED CRITERIA ---
     prompt = """
     Analyze the following tour description and summarize it strictly into this format:
     
@@ -98,14 +94,13 @@ def generate_summary(text, key, model_name):
     8. **Child Policy & Eligibility**: Age limits, ticket rules, or height restrictions.
     9. **Accessibility**: Info for persons with disabilities (wheelchair access, mobility issues).
     10. **Group Size**: Min/Max pax (if mentioned).
-    11. **Unit Types & Prices**: List Adult, Child, Infant, Senior prices if available in the text. (Note: if prices are dynamic/hidden, mention "Check availability for pricing").
+    11. **Unit Types & Prices**: List Adult, Child, Infant, Senior prices if available.
     12. **Policies**: Cancellation policy and Confirmation type (instant/manual).
-    13. **SEO Keywords**: 3 high-traffic search keywords relevant to this specific activity.
+    13. **SEO Keywords**: 3 high-traffic search keywords.
 
     ---
     **Social Media Content**
-    Generate 10 engaging Instagram/Social Media captions relevant to this activity. 
-    Mix short, punchy captions with longer, descriptive ones. Use emojis.
+    Generate 10 engaging Instagram/Social Media captions (mix of short & long). Use emojis.
     
     Tour Text:
     """ + text
@@ -113,36 +108,58 @@ def generate_summary(text, key, model_name):
     response = model.generate_content(prompt)
     return response.text
 
-# --- Main Interface ---
-url = st.text_input("Paste Tour Link Here")
+# --- MAIN INTERFACE ---
+# Tabs allow user to choose method
+tab1, tab2 = st.tabs(["🔗 Paste Link", "📝 Paste Text (Fallback)"])
 
-if st.button("Generate Summary"):
-    if not api_key:
-        st.warning("⚠️ Gemini API Key is missing.")
-    elif not url:
-        st.warning("⚠️ Please paste a URL.")
-    else:
-        genai.configure(api_key=api_key)
-        
-        with st.spinner("Finding the best AI model..."):
-            model_name = get_working_model()
-        
-        if not model_name:
-            st.error("❌ No available models found. Check API Key.")
+# METHOD 1: URL
+with tab1:
+    url = st.text_input("Paste Tour Link Here")
+    if st.button("Generate from Link"):
+        if not api_key:
+            st.warning("⚠️ Gemini API Key is missing.")
+        elif not url:
+            st.warning("⚠️ Please paste a URL.")
         else:
-            with st.spinner(f"Generating summary with custom order using {model_name}..."):
+            genai.configure(api_key=api_key)
+            with st.spinner("Accessing website..."):
                 raw_text = extract_text_from_url(url)
                 
-                if raw_text == "403":
-                    st.error("🚫 Access Denied: This website blocks automated scrapers.")
+                # If blocked (403) or Error, advise user to use Tab 2
+                if raw_text == "403" or raw_text == "ERROR":
+                    st.error("🚫 Website Blocked: This site has strong security.")
+                    st.info("👉 **Solution:** Click the 'Paste Text (Fallback)' tab above. Copy all the text from the website manually (Ctrl+A, Ctrl+C) and paste it there. It works 100% of the time!")
                 elif raw_text:
-                    try:
-                        summary = generate_summary(raw_text, api_key, model_name)
-                        st.success("Success!")
-                        st.markdown("---")
-                        st.markdown(summary)
-                    except Exception as e:
-                        st.error(f"AI Error: {e}")
+                    model_name = get_working_model()
+                    if model_name:
+                        with st.spinner(f"Summarizing with {model_name}..."):
+                            summary = generate_summary(raw_text, api_key, model_name)
+                            st.success("Success!")
+                            st.markdown("---")
+                            st.markdown(summary)
+                    else:
+                        st.error("❌ No AI model found. Check API key.")
                 else:
-                    st.error("❌ Could not read the website.")
+                    st.error("❌ Invalid URL or Connection Error.")
 
+# METHOD 2: MANUAL TEXT
+with tab2:
+    st.info("💡 Use this if the link above fails. Go to the website, press **Ctrl+A** (Select All) then **Ctrl+C** (Copy), and paste here.")
+    manual_text = st.text_area("Paste Website Text Here", height=300)
+    
+    if st.button("Generate from Text"):
+        if not api_key:
+            st.warning("⚠️ Gemini API Key is missing.")
+        elif len(manual_text) < 50:
+            st.warning("⚠️ Please paste more text.")
+        else:
+            genai.configure(api_key=api_key)
+            model_name = get_working_model()
+            if model_name:
+                with st.spinner(f"Reading your text..."):
+                    summary = generate_summary(manual_text, api_key, model_name)
+                    st.success("Success!")
+                    st.markdown("---")
+                    st.markdown(summary)
+            else:
+                st.error("❌ No AI model found.")
