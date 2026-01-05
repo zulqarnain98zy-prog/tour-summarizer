@@ -1,7 +1,9 @@
 import streamlit as st
 import cloudscraper
+import time
 from bs4 import BeautifulSoup
 import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Tour Summarizer Pro", page_icon="✈️", layout="wide")
@@ -33,9 +35,11 @@ def get_working_model():
             if 'generateContent' in m.supported_generation_methods:
                 available_models.append(m.name)
         
+        # Priority: Flash is faster and has higher limits than Pro
         preferred_order = [
             'models/gemini-1.5-flash',
             'models/gemini-1.5-flash-latest',
+            'models/gemini-1.5-flash-001',
             'models/gemini-1.5-pro',
             'models/gemini-pro'
         ]
@@ -60,7 +64,7 @@ def extract_text_from_url(url):
         soup = BeautifulSoup(response.content, 'html.parser')
         
         # 1. Remove Junk
-        for script in soup(["script", "style", "nav", "footer", "iframe", "svg", "button"]):
+        for script in soup(["script", "style", "nav", "footer", "iframe", "svg", "button", "noscript"]):
             script.extract()
             
         # 2. TARGET DROPDOWNS & FAQ ACCORDIONS
@@ -75,15 +79,15 @@ def extract_text_from_url(url):
         clean_lines = [line for line in lines if line]
         final_text = '\n'.join(clean_lines)
         
-        return final_text[:35000]
+        # Limit text to 30,000 characters to save "tokens" and reduce errors
+        return final_text[:30000]
     except Exception as e:
         return "ERROR"
 
-def generate_summary(text, key, model_name):
+def generate_summary_with_retry(text, key, model_name):
     genai.configure(api_key=key)
     model = genai.GenerativeModel(model_name)
     
-    # --- UPDATED PROMPT: NO FULL STOPS ---
     prompt = """
     You are an expert travel product manager. Analyze the following tour description.
     
@@ -119,8 +123,23 @@ def generate_summary(text, key, model_name):
     Tour Text:
     """ + text
     
-    response = model.generate_content(prompt)
-    return response.text
+    # --- RETRY LOGIC FOR RESOURCE EXHAUSTED ERRORS ---
+    max_retries = 3
+    wait_time = 5 # seconds
+    
+    for attempt in range(max_retries):
+        try:
+            response = model.generate_content(prompt)
+            return response.text
+        except (ResourceExhausted, ServiceUnavailable) as e:
+            if attempt < max_retries - 1:
+                # If error, wait and try again
+                time.sleep(wait_time * (attempt + 1)) # Wait 5s, then 10s
+                continue
+            else:
+                return "⚠️ **Server Busy:** The free AI server is currently overloaded. Please wait 1 minute and try again."
+        except Exception as e:
+            return f"AI Error: {e}"
 
 # --- MAIN INTERFACE ---
 tab1, tab2 = st.tabs(["🔗 Paste Link", "📝 Paste Text (Fallback)"])
@@ -134,7 +153,6 @@ with tab1:
         elif not url:
             st.warning("⚠️ Please paste a URL.")
         else:
-            genai.configure(api_key=api_key)
             with st.spinner("Analyzing website..."):
                 raw_text = extract_text_from_url(url)
                 
@@ -144,11 +162,14 @@ with tab1:
                 elif raw_text:
                     model_name = get_working_model()
                     if model_name:
-                        with st.spinner(f"Processing with {model_name}..."):
-                            summary = generate_summary(raw_text, api_key, model_name)
-                            st.success("Done!")
-                            st.markdown("---")
-                            st.markdown(summary)
+                        with st.spinner(f"Processing (Model: {model_name})..."):
+                            summary = generate_summary_with_retry(raw_text, api_key, model_name)
+                            if "Server Busy" in summary:
+                                st.error(summary)
+                            else:
+                                st.success("Done!")
+                                st.markdown("---")
+                                st.markdown(summary)
                     else:
                         st.error("❌ No AI model found.")
                 else:
@@ -165,13 +186,15 @@ with tab2:
         elif len(manual_text) < 50:
             st.warning("⚠️ Please paste more text.")
         else:
-            genai.configure(api_key=api_key)
-            model_name = get_working_model()
-            if model_name:
-                with st.spinner(f"Processing..."):
-                    summary = generate_summary(manual_text, api_key, model_name)
-                    st.success("Success!")
-                    st.markdown("---")
-                    st.markdown(summary)
-            else:
-                st.error("❌ No AI model found.")
+            with st.spinner(f"Processing..."):
+                model_name = get_working_model()
+                if model_name:
+                    summary = generate_summary_with_retry(manual_text, api_key, model_name)
+                    if "Server Busy" in summary:
+                        st.error(summary)
+                    else:
+                        st.success("Success!")
+                        st.markdown("---")
+                        st.markdown(summary)
+                else:
+                    st.error("❌ No AI model found.")
