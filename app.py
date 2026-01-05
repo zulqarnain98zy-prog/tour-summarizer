@@ -16,8 +16,8 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-st.title("✈️ Global Tour Summarizer (Formatted)")
-st.markdown("Paste a link to generate a summary with **strict word counts** and **FAQs**.")
+st.title("✈️ Global Tour Summarizer")
+st.markdown("Paste a link to generate a summary. **Highlights & Captions will not have full stops.**")
 
 # --- API KEY ---
 if "GEMINI_API_KEY" in st.secrets:
@@ -64,7 +64,6 @@ def extract_text_from_url(url):
             script.extract()
             
         # 2. TARGET DROPDOWNS & FAQ ACCORDIONS
-        # Many sites use <details> for FAQs. We ensure they are separated.
         for details in soup.find_all('details'):
             details.append(soup.new_string('\n')) 
             
@@ -76,7 +75,7 @@ def extract_text_from_url(url):
         clean_lines = [line for line in lines if line]
         final_text = '\n'.join(clean_lines)
         
-        return final_text[:35000] # Limit
+        return final_text[:35000]
     except Exception as e:
         return "ERROR"
 
@@ -84,6 +83,7 @@ def generate_summary(text, key, model_name):
     genai.configure(api_key=key)
     model = genai.GenerativeModel(model_name)
     
+    # --- UPDATED PROMPT: NO FULL STOPS ---
     prompt = """
     You are an expert travel product manager. Analyze the following tour description.
     
@@ -93,6 +93,7 @@ def generate_summary(text, key, model_name):
 
     1. **Highlights**: Exactly 4 bullet points.
        * *Constraint:* Each bullet point must be **strictly between 10 and 12 words**.
+       * *Constraint:* **DO NOT** put a full stop (.) at the end of the bullet points.
     2. **What to Expect**: A description under 800 characters.
     3. **Activity Duration**: The total time.
     4. **Full Itinerary**: A step-by-step list (e.g., 8:00 AM - Pickup; 10:00 AM - Arrive).
@@ -112,6 +113,7 @@ def generate_summary(text, key, model_name):
     Generate 10 photo captions.
     * *Constraint:* Each caption must be **exactly 1 sentence**.
     * *Constraint:* Each caption must be **strictly between 10 and 12 words**.
+    * *Constraint:* **DO NOT** put a full stop (.) at the end of the captions.
     * Use emojis.
     
     Tour Text:
