@@ -1,6 +1,7 @@
 import streamlit as st
 import cloudscraper
 import time
+import random
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable
@@ -18,24 +19,61 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-st.title("✈️ Global Tour Summarizer")
+st.title("✈️ Global Tour Summarizer (Team Edition)")
 st.markdown("Paste a link to generate a summary. **Highlights & Captions will not have full stops.**")
 
-# --- API KEY ---
-if "GEMINI_API_KEY" in st.secrets:
-    api_key = st.secrets["GEMINI_API_KEY"]
-else:
-    api_key = st.sidebar.text_input("Enter Gemini API Key", type="password")
+# --- API KEY ROTATION ---
+# This function randomly picks one key from your list to spread the load.
+def get_random_key():
+    if "GEMINI_KEYS" in st.secrets:
+        # If you set up the list in secrets
+        keys = st.secrets["GEMINI_KEYS"]
+        return random.choice(keys)
+    elif "GEMINI_API_KEY" in st.secrets:
+        # Fallback for old single key setup
+        return st.secrets["GEMINI_API_KEY"]
+    else:
+        return None
 
-# --- HELPER FUNCTIONS ---
-def get_working_model():
+# --- CACHING (Saves Server Power) ---
+# If someone checked this URL in the last 24 hours, return the saved text instantly.
+@st.cache_data(ttl=86400, show_spinner=False)
+def extract_text_from_url(url):
     try:
+        scraper = cloudscraper.create_scraper(browser='chrome')
+        response = scraper.get(url, timeout=15)
+        
+        if response.status_code == 403:
+            return "403"
+        if response.status_code != 200:
+            return None
+            
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        for script in soup(["script", "style", "nav", "footer", "iframe", "svg", "button", "noscript"]):
+            script.extract()
+            
+        for details in soup.find_all('details'):
+            details.append(soup.new_string('\n')) 
+            
+        text = soup.get_text(separator='\n')
+        lines = (line.strip() for line in text.splitlines())
+        clean_lines = [line for line in lines if line]
+        final_text = '\n'.join(clean_lines)
+        
+        return final_text[:35000]
+    except Exception:
+        return "ERROR"
+
+def get_working_model(api_key):
+    """Finds a model available for the SPECIFIC key selected."""
+    try:
+        genai.configure(api_key=api_key)
         available_models = []
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods:
                 available_models.append(m.name)
         
-        # Priority: Flash is faster and has higher limits than Pro
         preferred_order = [
             'models/gemini-1.5-flash',
             'models/gemini-1.5-flash-latest',
@@ -51,41 +89,14 @@ def get_working_model():
     except Exception:
         return None
 
-def extract_text_from_url(url):
-    try:
-        scraper = cloudscraper.create_scraper(browser='chrome')
-        response = scraper.get(url, timeout=15)
-        
-        if response.status_code == 403:
-            return "403"
-        if response.status_code != 200:
-            return None
-            
-        soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # 1. Remove Junk
-        for script in soup(["script", "style", "nav", "footer", "iframe", "svg", "button", "noscript"]):
-            script.extract()
-            
-        # 2. TARGET DROPDOWNS & FAQ ACCORDIONS
-        for details in soup.find_all('details'):
-            details.append(soup.new_string('\n')) 
-            
-        # 3. Extract Text with Newlines
-        text = soup.get_text(separator='\n')
-        
-        # 4. Clean up
-        lines = (line.strip() for line in text.splitlines())
-        clean_lines = [line for line in lines if line]
-        final_text = '\n'.join(clean_lines)
-        
-        # Limit text to 30,000 characters to save "tokens"
-        return final_text[:30000]
-    except Exception as e:
-        return "ERROR"
-
-def generate_summary_with_retry(text, key, model_name):
-    genai.configure(api_key=key)
+# Caching the AI response is tricky because prompts change, 
+# but we can cache based on the input text to save money/quota.
+@st.cache_data(ttl=86400, show_spinner=False)
+def generate_summary_cached(text, _key, model_name):
+    # The underscore in _key tells Streamlit: "Don't re-run just because the key changed, 
+    # only re-run if the TEXT changed."
+    
+    genai.configure(api_key=_key)
     model = genai.GenerativeModel(model_name)
     
     prompt = """
@@ -123,22 +134,20 @@ def generate_summary_with_retry(text, key, model_name):
     Tour Text:
     """ + text
     
-    # --- UPDATED RETRY LOGIC (7 TRIES) ---
+    # Retry Logic is handled INSIDE this cached function
     max_retries = 7
-    wait_time = 5 # seconds
+    wait_time = 5 
     
     for attempt in range(max_retries):
         try:
             response = model.generate_content(prompt)
             return response.text
-        except (ResourceExhausted, ServiceUnavailable) as e:
+        except (ResourceExhausted, ServiceUnavailable):
             if attempt < max_retries - 1:
-                # If error, wait and try again
-                # It increases wait time: 5s, 10s, 15s...
                 time.sleep(wait_time * (attempt + 1)) 
                 continue
             else:
-                return "⚠️ **Server Busy:** The free AI server is overloaded. Please wait a few minutes and try again later."
+                return "⚠️ **Server Busy:** High traffic. Please wait 1 minute."
         except Exception as e:
             return f"AI Error: {e}"
 
@@ -149,22 +158,28 @@ tab1, tab2 = st.tabs(["🔗 Paste Link", "📝 Paste Text (Fallback)"])
 with tab1:
     url = st.text_input("Paste Tour Link Here")
     if st.button("Generate Summary"):
-        if not api_key:
-            st.warning("⚠️ Gemini API Key is missing.")
+        # 1. Rotate Key
+        current_key = get_random_key()
+        
+        if not current_key:
+            st.error("⚠️ API Key missing in Secrets.")
         elif not url:
             st.warning("⚠️ Please paste a URL.")
         else:
             with st.spinner("Analyzing website..."):
+                # Use cached extractor
                 raw_text = extract_text_from_url(url)
                 
                 if raw_text == "403" or raw_text == "ERROR":
                     st.error("🚫 Website Blocked.")
                     st.info("👉 Use the 'Paste Text' tab above.")
                 elif raw_text:
-                    model_name = get_working_model()
+                    model_name = get_working_model(current_key)
                     if model_name:
                         with st.spinner(f"Processing (Model: {model_name})..."):
-                            summary = generate_summary_with_retry(raw_text, api_key, model_name)
+                            # Use cached generator
+                            summary = generate_summary_cached(raw_text, current_key, model_name)
+                            
                             if "Server Busy" in summary:
                                 st.error(summary)
                             else:
@@ -182,15 +197,17 @@ with tab2:
     manual_text = st.text_area("Paste Full Text Here", height=300)
     
     if st.button("Generate from Text"):
-        if not api_key:
-            st.warning("⚠️ Gemini API Key is missing.")
+        current_key = get_random_key()
+        
+        if not current_key:
+            st.error("⚠️ API Key missing.")
         elif len(manual_text) < 50:
             st.warning("⚠️ Please paste more text.")
         else:
             with st.spinner(f"Processing..."):
-                model_name = get_working_model()
+                model_name = get_working_model(current_key)
                 if model_name:
-                    summary = generate_summary_with_retry(manual_text, api_key, model_name)
+                    summary = generate_summary_cached(manual_text, current_key, model_name)
                     if "Server Busy" in summary:
                         st.error(summary)
                     else:
