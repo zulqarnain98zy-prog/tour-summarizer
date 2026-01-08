@@ -21,8 +21,8 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-st.title("✈️ Global Tour Summarizer (Smart Search)")
-st.markdown("Paste a link to generate a summary. **Highlights: 10-15 words | What to Expect: 100-150 words.**")
+st.title("✈️ Global Tour Summarizer (Strict Accuracy)")
+st.markdown("Paste a link to generate a summary. **Strictly based on source text—no hallucinations.**")
 
 # --- LOAD ALL KEYS ---
 def get_all_keys():
@@ -95,9 +95,15 @@ def call_gemini_api(text, api_key):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     
+    # --- UPDATED PROMPT: STRICT ACCURACY MODE ---
     prompt = """
     You are an expert travel product manager. Analyze the following tour description.
     **CRITICAL INSTRUCTION:** Translate all content to **ENGLISH**.
+    
+    **STRICT GROUNDING RULE:** For sections 3 through 14, you must ONLY use information explicitly found in the text.
+    - Do not guess.
+    - Do not use "general knowledge" (e.g., do not assume a child age policy if not written).
+    - If a specific detail is missing in the text, write "Not specified" or "Not mentioned".
     
     **Output strictly in this format:**
 
@@ -107,17 +113,17 @@ def call_gemini_api(text, api_key):
     2. **What to Expect**: A description of the experience.
        * *Constraint:* Length must be **between 100 and 150 words**.
        * *Constraint:* Absolute maximum length is **800 characters**.
-    3. **Activity Duration**: The total time.
-    4. **Full Itinerary**: A step-by-step list (e.g., 8:00 AM - Pickup; 10:00 AM - Arrive).
-    5. **Start Time and End Time**: Specific times if mentioned.
-    6. **Inclusions & Exclusions**: Two separate lists.
-    7. **Additional Information**: Key logistics (what to bring, restrictions).
-    8. **Child Policy & Eligibility**: Age limits, ticket rules, or height restrictions.
-    9. **Accessibility**: Info for persons with disabilities.
+    3. **Activity Duration**: The total time. (Write "Not mentioned" if missing).
+    4. **Full Itinerary**: A step-by-step list (e.g., 8:00 AM - Pickup). Only include steps explicitly listed.
+    5. **Start Time and End Time**: Specific times. (Write "Not mentioned" if missing).
+    6. **Inclusions & Exclusions**: Two separate lists. Only list what is explicitly stated.
+    7. **Additional Information**: Key logistics found in text.
+    8. **Child Policy & Eligibility**: Specific age limits/rules found in text. (Do not guess).
+    9. **Accessibility**: Info for persons with disabilities found in text.
     10. **Group Size**: Min/Max pax (if mentioned).
-    11. **Unit Types & Prices**: List Adult, Child, Infant prices if available.
-    12. **Policies**: Cancellation policy and Confirmation type.
-    13. **SEO Keywords**: 3 high-traffic search keywords in English.
+    11. **Unit Types & Prices**: List Adult, Child, Infant categories/prices if available.
+    12. **Policies**: Cancellation policy and Confirmation type found in text.
+    13. **SEO Keywords**: 3 high-traffic search keywords in English based on the content.
     14. **FAQ**: Extract any "Frequently Asked Questions" found on the page. If none, write "No FAQ found on page."
     15. **OTA Search Term**: Provide the single BEST search query (Product Name + City) to find this exact activity on Viator or GetYourGuide. Do not use symbols.
 
@@ -161,7 +167,7 @@ def generate_summary_with_smart_rotation(text, keys):
             
     return "⚠️ **All servers busy:** Please wait 1 minute."
 
-# --- DISPLAY FUNCTIONS (FIXED KLOOK SEARCH) ---
+# --- DISPLAY FUNCTIONS ---
 def display_competitor_buttons(summary_text):
     match = re.search(r"15\.\s*\*\*OTA Search Term\*\*:\s*(.*)", summary_text)
     if match:
@@ -170,29 +176,23 @@ def display_competitor_buttons(summary_text):
         
         st.markdown("### 🔎 Find Similar Products")
         
-        # ROW 1: Consumer OTAs
         col1, col2, col3 = st.columns(3)
         with col1:
             st.link_button("🟢 Search on Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
         with col2:
             st.link_button("🔵 Search on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
         with col3:
-            # FIXED: Klook Internal Search is bad. Changed to Google Site Search.
-            # Query: site:klook.com "Product Name"
             klook_query = f'site:klook.com "{search_term}"'
             st.link_button("🟠 Search on Klook", f"https://www.google.com/search?q={urllib.parse.quote(klook_query)}")
             
-        # ROW 2: Portals & TripAdvisor
-        st.write("") # Spacer
+        st.write("") 
         col4, col5, col6 = st.columns(3)
         with col4:
             st.link_button("🦉 Search on TripAdvisor", f"https://www.tripadvisor.com/Search?q={encoded_term}")
         with col5:
-            # Google Search: "Search Term" FareHarbor
             fh_query = f'"{search_term}" FareHarbor'
             st.link_button("⚓ Find on FareHarbor", f"https://www.google.com/search?q={urllib.parse.quote(fh_query)}")
         with col6:
-            # Google Search: "Search Term" Rezdy
             rezdy_query = f'"{search_term}" Rezdy'
             st.link_button("📅 Find on Rezdy", f"https://www.google.com/search?q={urllib.parse.quote(rezdy_query)}")
 
