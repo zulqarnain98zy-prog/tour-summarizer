@@ -21,8 +21,8 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-st.title("✈️ Global Tour Summarizer (Self-Healing)")
-st.markdown("Paste a link to generate a summary. **Automatically finds the working AI model.**")
+st.title("✈️ Global Tour Summarizer (Custom Formatting)")
+st.markdown("Paste a link to generate a summary. **Highlights: 10-15 words | What to Expect: 100-150 words.**")
 
 # --- LOAD ALL KEYS ---
 def get_all_keys():
@@ -57,35 +57,25 @@ def extract_text_from_url(url):
     except Exception:
         return "ERROR"
 
-# --- MODEL FINDER (THE FIX) ---
+# --- MODEL FINDER ---
 def get_valid_model(api_key):
-    """
-    Asks Google which models are available for this specific key.
-    Prevents 404 errors by never guessing.
-    """
     try:
         genai.configure(api_key=api_key)
-        # Get list of all models this key can access
         models = genai.list_models()
         available_names = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
         
-        # Priority list (Try newest first, fallback to older ones)
         priority_list = [
             'models/gemini-1.5-flash',
             'models/gemini-1.5-flash-latest',
             'models/gemini-1.5-flash-001',
             'models/gemini-1.5-pro',
-            'models/gemini-1.5-pro-latest',
-            'models/gemini-1.5-pro-001',
             'models/gemini-pro'
         ]
         
-        # Check if any preferred model is in the available list
         for model in priority_list:
             if model in available_names:
                 return model
         
-        # If none of our favorites are there, take whatever IS there
         if available_names:
             return available_names[0]
             
@@ -97,7 +87,6 @@ def get_valid_model(api_key):
 def call_gemini_api(text, api_key):
     """Finds a valid model and calls it."""
     
-    # 1. Find a model that actually exists for this key
     model_name = get_valid_model(api_key)
     
     if not model_name:
@@ -106,6 +95,7 @@ def call_gemini_api(text, api_key):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     
+    # --- UPDATED PROMPT WITH NEW WORD COUNTS ---
     prompt = """
     You are an expert travel product manager. Analyze the following tour description.
     **CRITICAL INSTRUCTION:** Translate all content to **ENGLISH**.
@@ -113,9 +103,11 @@ def call_gemini_api(text, api_key):
     **Output strictly in this format:**
 
     1. **Highlights**: Exactly 4 bullet points.
-       * *Constraint:* Each bullet point must be **strictly between 10 and 12 words**.
+       * *Constraint:* Each bullet point must be **strictly between 10 and 15 words**.
        * *Constraint:* **DO NOT** put a full stop (.) at the end of the bullet points.
-    2. **What to Expect**: A description under 800 characters.
+    2. **What to Expect**: A description of the experience.
+       * *Constraint:* Length must be **between 100 and 150 words**.
+       * *Constraint:* Absolute maximum length is **800 characters**.
     3. **Activity Duration**: The total time.
     4. **Full Itinerary**: A step-by-step list (e.g., 8:00 AM - Pickup; 10:00 AM - Arrive).
     5. **Start Time and End Time**: Specific times if mentioned.
@@ -134,7 +126,7 @@ def call_gemini_api(text, api_key):
     **Social Media Content**
     Generate 10 photo captions.
     * *Constraint:* Each caption must be **exactly 1 sentence**.
-    * *Constraint:* Each caption must be **strictly between 10 and 12 words**.
+    * *Constraint:* Each caption must be **strictly between 10 and 15 words**.
     * *Constraint:* **DO NOT** put a full stop (.) at the end of the captions.
     * Use emojis.
     
@@ -159,11 +151,8 @@ def generate_summary_with_smart_rotation(text, keys):
                 return result
             
             except (ResourceExhausted, ServiceUnavailable):
-                # Traffic jam -> Switch key
                 continue
             except (NotFound, ValueError):
-                # 404 Model Not Found -> This specific key is bad or model changed.
-                # Just skip it and try the next key.
                 continue
             except Exception as e:
                 return f"AI Error: {e}"
