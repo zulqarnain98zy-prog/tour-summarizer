@@ -167,24 +167,31 @@ def display_merchant_buttons(url_input):
         
         # Extract name (e.g., headout.com -> Headout)
         merchant_name = clean_domain.split('.')[0].capitalize()
-        
+        encoded_merchant = urllib.parse.quote(merchant_name)
+
         st.markdown("---")
         st.markdown(f"### 🏢 Analyze Merchant: **{merchant_name}**")
-        st.caption(f"Researching the website source: {clean_domain}")
         
+        # ROW 1: RESEARCH
+        st.caption("Research:")
         col1, col2 = st.columns(2)
-        
         with col1:
-            # Google Search: "sites like headout.com"
             query = f"sites like {clean_domain}"
             encoded_query = urllib.parse.quote(query)
-            st.link_button(f"🔎 Find Similar Merchants to {merchant_name}", f"https://www.google.com/search?q={encoded_query}")
-            
+            st.link_button(f"🔎 Find Competitors to {merchant_name}", f"https://www.google.com/search?q={encoded_query}")
         with col2:
-            # Google Search: "Headout reviews"
             query_reviews = f"{merchant_name} website reviews scam legit"
             encoded_reviews = urllib.parse.quote(query_reviews)
             st.link_button(f"⭐ Check {merchant_name} Reliability", f"https://www.google.com/search?q={encoded_reviews}")
+
+        # ROW 2: FIND ON OTAs (NEW!)
+        st.write("") # Spacer
+        st.caption("Check if they sell directly on OTAs:")
+        col3, col4 = st.columns(2)
+        with col3:
+            st.link_button(f"🟢 Find {merchant_name} on Viator", f"https://www.viator.com/searchResults/all?text={encoded_merchant}")
+        with col4:
+            st.link_button(f"🔵 Find {merchant_name} on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_merchant}")
             
     except Exception:
         pass
