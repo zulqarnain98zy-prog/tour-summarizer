@@ -21,7 +21,7 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-st.title("✈️ Global Tour Summarizer (Multi-Portal Search)")
+st.title("✈️ Global Tour Summarizer (Smart Search)")
 st.markdown("Paste a link to generate a summary. **Highlights: 10-15 words | What to Expect: 100-150 words.**")
 
 # --- LOAD ALL KEYS ---
@@ -161,7 +161,7 @@ def generate_summary_with_smart_rotation(text, keys):
             
     return "⚠️ **All servers busy:** Please wait 1 minute."
 
-# --- DISPLAY FUNCTIONS (UPDATED) ---
+# --- DISPLAY FUNCTIONS (FIXED KLOOK SEARCH) ---
 def display_competitor_buttons(summary_text):
     match = re.search(r"15\.\s*\*\*OTA Search Term\*\*:\s*(.*)", summary_text)
     if match:
@@ -177,7 +177,10 @@ def display_competitor_buttons(summary_text):
         with col2:
             st.link_button("🔵 Search on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
         with col3:
-            st.link_button("🟠 Search on Klook", f"https://www.klook.com/search?text={encoded_term}")
+            # FIXED: Klook Internal Search is bad. Changed to Google Site Search.
+            # Query: site:klook.com "Product Name"
+            klook_query = f'site:klook.com "{search_term}"'
+            st.link_button("🟠 Search on Klook", f"https://www.google.com/search?q={urllib.parse.quote(klook_query)}")
             
         # ROW 2: Portals & TripAdvisor
         st.write("") # Spacer
