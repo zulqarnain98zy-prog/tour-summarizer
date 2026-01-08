@@ -6,7 +6,7 @@ import re
 import urllib.parse
 from bs4 import BeautifulSoup
 import google.generativeai as genai
-from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, GoogleAPIError
+from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, NotFound
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Tour Summarizer Pro", page_icon="✈️", layout="wide")
@@ -21,8 +21,8 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-st.title("✈️ Global Tour Summarizer (Multi-Key Rotation)")
-st.markdown("Paste a link to generate a summary. **Automatically switches keys if one is busy.**")
+st.title("✈️ Global Tour Summarizer (Self-Healing)")
+st.markdown("Paste a link to generate a summary. **Automatically finds the working AI model.**")
 
 # --- LOAD ALL KEYS ---
 def get_all_keys():
@@ -30,7 +30,6 @@ def get_all_keys():
     if "GEMINI_KEYS" in st.secrets:
         return st.secrets["GEMINI_KEYS"]
     elif "GEMINI_API_KEY" in st.secrets:
-        # Backward compatibility for single key
         return [st.secrets["GEMINI_API_KEY"]]
     else:
         return []
@@ -58,21 +57,53 @@ def extract_text_from_url(url):
     except Exception:
         return "ERROR"
 
-def get_preferred_model(api_key):
-    """Tries to configure the key and return the best model name."""
+# --- MODEL FINDER (THE FIX) ---
+def get_valid_model(api_key):
+    """
+    Asks Google which models are available for this specific key.
+    Prevents 404 errors by never guessing.
+    """
     try:
         genai.configure(api_key=api_key)
-        # We skip checking list_models() to save time/requests. 
-        # We blindly trust 'gemini-1.5-flash' exists as it's the standard free model.
-        return 'models/gemini-1.5-flash'
+        # Get list of all models this key can access
+        models = genai.list_models()
+        available_names = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
+        
+        # Priority list (Try newest first, fallback to older ones)
+        priority_list = [
+            'models/gemini-1.5-flash',
+            'models/gemini-1.5-flash-latest',
+            'models/gemini-1.5-flash-001',
+            'models/gemini-1.5-pro',
+            'models/gemini-1.5-pro-latest',
+            'models/gemini-1.5-pro-001',
+            'models/gemini-pro'
+        ]
+        
+        # Check if any preferred model is in the available list
+        for model in priority_list:
+            if model in available_names:
+                return model
+        
+        # If none of our favorites are there, take whatever IS there
+        if available_names:
+            return available_names[0]
+            
+        return None
     except Exception:
-        return 'models/gemini-pro'
+        return None
 
-# --- CORE GENERATION FUNCTION (NO RETRY LOOP HERE) ---
+# --- CORE GENERATION FUNCTION ---
 def call_gemini_api(text, api_key):
-    """Makes a SINGLE attempt to call the API."""
+    """Finds a valid model and calls it."""
+    
+    # 1. Find a model that actually exists for this key
+    model_name = get_valid_model(api_key)
+    
+    if not model_name:
+        raise ValueError("No available models found for this API Key.")
+
     genai.configure(api_key=api_key)
-    model_name = get_preferred_model(api_key)
     model = genai.GenerativeModel(model_name)
     
     prompt = """
@@ -115,39 +146,32 @@ def call_gemini_api(text, api_key):
 
 # --- SMART ROTATION LOGIC ---
 def generate_summary_with_smart_rotation(text, keys):
-    """
-    Tries Key 1. If it fails, instantly tries Key 2.
-    If all keys fail, it waits and starts over.
-    """
     if not keys:
         return "⚠️ No API keys found."
 
-    # Shuffle keys so we don't always hammer Key #1 first
     random.shuffle(keys)
-    
-    max_cycles = 2  # How many times to loop through ALL keys
+    max_cycles = 2
     
     for cycle in range(max_cycles):
         for index, key in enumerate(keys):
             try:
-                # Try the key
                 result = call_gemini_api(text, key)
-                return result # Success! Return immediately.
+                return result
             
             except (ResourceExhausted, ServiceUnavailable):
-                # If this specific key is busy, just continue to the next key in the loop
-                # Do NOT wait here. Switch instantly.
+                # Traffic jam -> Switch key
                 continue
-                
+            except (NotFound, ValueError):
+                # 404 Model Not Found -> This specific key is bad or model changed.
+                # Just skip it and try the next key.
+                continue
             except Exception as e:
-                # If it's a weird error (not traffic), report it
                 return f"AI Error: {e}"
         
-        # If we finished a full loop of ALL keys and all were busy:
         if cycle < max_cycles - 1:
-            time.sleep(5) # Wait 5 seconds before trying the whole list again
+            time.sleep(5)
             
-    return "⚠️ **All servers busy:** All API keys are currently exhausted. Please wait 1 minute."
+    return "⚠️ **All servers busy:** Please wait 1 minute."
 
 # --- DISPLAY FUNCTIONS ---
 def display_competitor_buttons(summary_text):
@@ -215,8 +239,7 @@ with tab1:
                     st.error("🚫 Website Blocked.")
                     st.info("👉 Use the 'Paste Text' tab above.")
                 elif raw_text:
-                    # CALL THE SMART ROTATION FUNCTION
-                    with st.spinner(f"Generating Summary (Trying {len(all_keys)} keys)..."):
+                    with st.spinner(f"Generating Summary..."):
                         summary = generate_summary_with_smart_rotation(raw_text, all_keys)
                         
                         if "All servers busy" in summary:
