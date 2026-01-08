@@ -151,8 +151,6 @@ def display_competitor_buttons(summary_text):
             st.link_button("🔵 Search on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
         with col3:
             st.link_button("🟠 Search on Klook", f"https://www.klook.com/search?text={encoded_term}")
-    else:
-        st.warning("Could not generate search links.")
 
 # --- BUTTON FUNCTION 2: FIND SIMILAR MERCHANTS ---
 def display_merchant_buttons(url_input):
@@ -166,3 +164,92 @@ def display_merchant_buttons(url_input):
         
         # Remove 'www.' to get clean name
         clean_domain = domain.replace("www.", "")
+        
+        # Extract name (e.g., headout.com -> Headout)
+        merchant_name = clean_domain.split('.')[0].capitalize()
+        
+        st.markdown("---")
+        st.markdown(f"### 🏢 Analyze Merchant: **{merchant_name}**")
+        st.caption(f"Researching the website source: {clean_domain}")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Google Search: "sites like headout.com"
+            query = f"sites like {clean_domain}"
+            encoded_query = urllib.parse.quote(query)
+            st.link_button(f"🔎 Find Similar Merchants to {merchant_name}", f"https://www.google.com/search?q={encoded_query}")
+            
+        with col2:
+            # Google Search: "Headout reviews"
+            query_reviews = f"{merchant_name} website reviews scam legit"
+            encoded_reviews = urllib.parse.quote(query_reviews)
+            st.link_button(f"⭐ Check {merchant_name} Reliability", f"https://www.google.com/search?q={encoded_reviews}")
+            
+    except Exception:
+        pass
+
+# --- MAIN INTERFACE ---
+tab1, tab2 = st.tabs(["🔗 Paste Link", "📝 Paste Text (Fallback)"])
+
+# METHOD 1: URL
+with tab1:
+    url = st.text_input("Paste Tour Link Here")
+    if st.button("Generate Summary"):
+        current_key = get_random_key()
+        if not current_key:
+            st.error("⚠️ API Key missing in Secrets.")
+        elif not url:
+            st.warning("⚠️ Please paste a URL.")
+        else:
+            with st.spinner("Analyzing..."):
+                raw_text = extract_text_from_url(url)
+                if raw_text == "403" or raw_text == "ERROR":
+                    st.error("🚫 Website Blocked.")
+                    st.info("👉 Use the 'Paste Text' tab above.")
+                elif raw_text:
+                    model_name = get_working_model(current_key)
+                    if model_name:
+                        with st.spinner(f"Processing (Model: {model_name})..."):
+                            summary = generate_summary_cached(raw_text, current_key, model_name)
+                            if "Server Busy" in summary:
+                                st.error(summary)
+                            else:
+                                st.success("Done!")
+                                st.markdown("---")
+                                st.markdown(summary)
+                                st.markdown("---")
+                                # 1. PRODUCT SEARCH
+                                display_competitor_buttons(summary)
+                                # 2. MERCHANT SEARCH
+                                display_merchant_buttons(url)
+                    else:
+                        st.error("❌ No AI model found.")
+                else:
+                    st.error("❌ Invalid URL.")
+
+# METHOD 2: MANUAL TEXT
+with tab2:
+    st.info("💡 Copy text from the website manually and paste it here if the link fails.")
+    manual_text = st.text_area("Paste Full Text Here", height=300)
+    if st.button("Generate from Text"):
+        current_key = get_random_key()
+        if not current_key:
+            st.error("⚠️ API Key missing.")
+        elif len(manual_text) < 50:
+            st.warning("⚠️ Please paste more text.")
+        else:
+            with st.spinner(f"Processing..."):
+                model_name = get_working_model(current_key)
+                if model_name:
+                    summary = generate_summary_cached(manual_text, current_key, model_name)
+                    if "Server Busy" in summary:
+                        st.error(summary)
+                    else:
+                        st.success("Success!")
+                        st.markdown("---")
+                        st.markdown(summary)
+                        st.markdown("---")
+                        display_competitor_buttons(summary)
+                else:
+                    st.error("❌ No AI model found.")
