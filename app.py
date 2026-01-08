@@ -21,7 +21,7 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-st.title("✈️ Global Tour Summarizer (Custom Formatting)")
+st.title("✈️ Global Tour Summarizer (Multi-Portal Search)")
 st.markdown("Paste a link to generate a summary. **Highlights: 10-15 words | What to Expect: 100-150 words.**")
 
 # --- LOAD ALL KEYS ---
@@ -95,7 +95,6 @@ def call_gemini_api(text, api_key):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     
-    # --- UPDATED PROMPT WITH NEW WORD COUNTS ---
     prompt = """
     You are an expert travel product manager. Analyze the following tour description.
     **CRITICAL INSTRUCTION:** Translate all content to **ENGLISH**.
@@ -162,7 +161,7 @@ def generate_summary_with_smart_rotation(text, keys):
             
     return "⚠️ **All servers busy:** Please wait 1 minute."
 
-# --- DISPLAY FUNCTIONS ---
+# --- DISPLAY FUNCTIONS (UPDATED) ---
 def display_competitor_buttons(summary_text):
     match = re.search(r"15\.\s*\*\*OTA Search Term\*\*:\s*(.*)", summary_text)
     if match:
@@ -170,6 +169,8 @@ def display_competitor_buttons(summary_text):
         encoded_term = urllib.parse.quote(search_term)
         
         st.markdown("### 🔎 Find Similar Products")
+        
+        # ROW 1: Consumer OTAs
         col1, col2, col3 = st.columns(3)
         with col1:
             st.link_button("🟢 Search on Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
@@ -177,6 +178,20 @@ def display_competitor_buttons(summary_text):
             st.link_button("🔵 Search on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
         with col3:
             st.link_button("🟠 Search on Klook", f"https://www.klook.com/search?text={encoded_term}")
+            
+        # ROW 2: Portals & TripAdvisor
+        st.write("") # Spacer
+        col4, col5, col6 = st.columns(3)
+        with col4:
+            st.link_button("🦉 Search on TripAdvisor", f"https://www.tripadvisor.com/Search?q={encoded_term}")
+        with col5:
+            # Google Search: "Search Term" FareHarbor
+            fh_query = f'"{search_term}" FareHarbor'
+            st.link_button("⚓ Find on FareHarbor", f"https://www.google.com/search?q={urllib.parse.quote(fh_query)}")
+        with col6:
+            # Google Search: "Search Term" Rezdy
+            rezdy_query = f'"{search_term}" Rezdy'
+            st.link_button("📅 Find on Rezdy", f"https://www.google.com/search?q={urllib.parse.quote(rezdy_query)}")
 
 def display_merchant_buttons(url_input):
     if not url_input: return
