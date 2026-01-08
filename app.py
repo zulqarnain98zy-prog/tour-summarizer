@@ -6,7 +6,7 @@ import re
 import urllib.parse
 from bs4 import BeautifulSoup
 import google.generativeai as genai
-from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable
+from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, GoogleAPIError
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Tour Summarizer Pro", page_icon="✈️", layout="wide")
@@ -21,18 +21,19 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-st.title("✈️ Global Tour Summarizer (Competitor & Merchant Analysis)")
-st.markdown("Paste a link to generate a summary, **compare prices**, and **analyze the merchant**.")
+st.title("✈️ Global Tour Summarizer (Multi-Key Rotation)")
+st.markdown("Paste a link to generate a summary. **Automatically switches keys if one is busy.**")
 
-# --- API KEY ROTATION ---
-def get_random_key():
+# --- LOAD ALL KEYS ---
+def get_all_keys():
+    """Retrieves all available keys from secrets as a list."""
     if "GEMINI_KEYS" in st.secrets:
-        keys = st.secrets["GEMINI_KEYS"]
-        return random.choice(keys)
+        return st.secrets["GEMINI_KEYS"]
     elif "GEMINI_API_KEY" in st.secrets:
-        return st.secrets["GEMINI_API_KEY"]
+        # Backward compatibility for single key
+        return [st.secrets["GEMINI_API_KEY"]]
     else:
-        return None
+        return []
 
 # --- CACHING ---
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -57,32 +58,21 @@ def extract_text_from_url(url):
     except Exception:
         return "ERROR"
 
-def get_working_model(api_key):
+def get_preferred_model(api_key):
+    """Tries to configure the key and return the best model name."""
     try:
         genai.configure(api_key=api_key)
-        available_models = []
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                available_models.append(m.name)
-        
-        preferred_order = [
-            'models/gemini-1.5-flash',
-            'models/gemini-1.5-flash-latest',
-            'models/gemini-1.5-flash-001',
-            'models/gemini-1.5-pro',
-            'models/gemini-pro'
-        ]
-        
-        for model in preferred_order:
-            if model in available_models:
-                return model
-        return available_models[0] if available_models else None
+        # We skip checking list_models() to save time/requests. 
+        # We blindly trust 'gemini-1.5-flash' exists as it's the standard free model.
+        return 'models/gemini-1.5-flash'
     except Exception:
-        return None
+        return 'models/gemini-pro'
 
-@st.cache_data(ttl=86400, show_spinner=False)
-def generate_summary_cached(text, _key, model_name):
-    genai.configure(api_key=_key)
+# --- CORE GENERATION FUNCTION (NO RETRY LOOP HERE) ---
+def call_gemini_api(text, api_key):
+    """Makes a SINGLE attempt to call the API."""
+    genai.configure(api_key=api_key)
+    model_name = get_preferred_model(api_key)
     model = genai.GenerativeModel(model_name)
     
     prompt = """
@@ -120,22 +110,46 @@ def generate_summary_cached(text, _key, model_name):
     Tour Text:
     """ + text
     
-    max_retries = 7
-    wait_time = 5 
-    for attempt in range(max_retries):
-        try:
-            response = model.generate_content(prompt)
-            return response.text
-        except (ResourceExhausted, ServiceUnavailable):
-            if attempt < max_retries - 1:
-                time.sleep(wait_time * (attempt + 1)) 
-                continue
-            else:
-                return "⚠️ **Server Busy:** High traffic. Please wait 1 minute."
-        except Exception as e:
-            return f"AI Error: {e}"
+    response = model.generate_content(prompt)
+    return response.text
 
-# --- BUTTON FUNCTION 1: FIND SIMILAR PRODUCTS ---
+# --- SMART ROTATION LOGIC ---
+def generate_summary_with_smart_rotation(text, keys):
+    """
+    Tries Key 1. If it fails, instantly tries Key 2.
+    If all keys fail, it waits and starts over.
+    """
+    if not keys:
+        return "⚠️ No API keys found."
+
+    # Shuffle keys so we don't always hammer Key #1 first
+    random.shuffle(keys)
+    
+    max_cycles = 2  # How many times to loop through ALL keys
+    
+    for cycle in range(max_cycles):
+        for index, key in enumerate(keys):
+            try:
+                # Try the key
+                result = call_gemini_api(text, key)
+                return result # Success! Return immediately.
+            
+            except (ResourceExhausted, ServiceUnavailable):
+                # If this specific key is busy, just continue to the next key in the loop
+                # Do NOT wait here. Switch instantly.
+                continue
+                
+            except Exception as e:
+                # If it's a weird error (not traffic), report it
+                return f"AI Error: {e}"
+        
+        # If we finished a full loop of ALL keys and all were busy:
+        if cycle < max_cycles - 1:
+            time.sleep(5) # Wait 5 seconds before trying the whole list again
+            
+    return "⚠️ **All servers busy:** All API keys are currently exhausted. Please wait 1 minute."
+
+# --- DISPLAY FUNCTIONS ---
 def display_competitor_buttons(summary_text):
     match = re.search(r"15\.\s*\*\*OTA Search Term\*\*:\s*(.*)", summary_text)
     if match:
@@ -143,7 +157,6 @@ def display_competitor_buttons(summary_text):
         encoded_term = urllib.parse.quote(search_term)
         
         st.markdown("### 🔎 Find Similar Products")
-        st.caption("Click to find this exact activity on other platforms:")
         col1, col2, col3 = st.columns(3)
         with col1:
             st.link_button("🟢 Search on Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
@@ -152,54 +165,34 @@ def display_competitor_buttons(summary_text):
         with col3:
             st.link_button("🟠 Search on Klook", f"https://www.klook.com/search?text={encoded_term}")
 
-# --- BUTTON FUNCTION 2: FIND SIMILAR MERCHANTS ---
 def display_merchant_buttons(url_input):
-    if not url_input:
-        return
-
+    if not url_input: return
     try:
-        # Extract the domain (e.g., www.headout.com -> headout.com)
         parsed_url = urllib.parse.urlparse(url_input)
         domain = parsed_url.netloc
-        
-        # Remove 'www.' to get clean name
         clean_domain = domain.replace("www.", "")
-        
-        # Extract name (e.g., headout.com -> Headout)
         merchant_name = clean_domain.split('.')[0].capitalize()
         
         st.markdown("---")
         st.markdown(f"### 🏢 Analyze Merchant: **{merchant_name}**")
         
-        # ROW 1: RESEARCH
-        st.caption("Research:")
         col1, col2 = st.columns(2)
         with col1:
             query = f"sites like {clean_domain}"
-            encoded_query = urllib.parse.quote(query)
-            st.link_button(f"🔎 Find Competitors to {merchant_name}", f"https://www.google.com/search?q={encoded_query}")
+            st.link_button(f"🔎 Find Competitors to {merchant_name}", f"https://www.google.com/search?q={urllib.parse.quote(query)}")
         with col2:
             query_reviews = f"{merchant_name} website reviews scam legit"
-            encoded_reviews = urllib.parse.quote(query_reviews)
-            st.link_button(f"⭐ Check {merchant_name} Reliability", f"https://www.google.com/search?q={encoded_reviews}")
+            st.link_button(f"⭐ Check {merchant_name} Reliability", f"https://www.google.com/search?q={urllib.parse.quote(query_reviews)}")
 
-        # ROW 2: FIND ON OTAs (UPDATED TO GOOGLE SEARCH)
-        st.write("") # Spacer
+        st.write("")
         st.caption("Check if they sell on OTAs (via Google Search):")
         col3, col4 = st.columns(2)
-        
         with col3:
-            # Google Search: "MerchantName on Viator"
             query_viator = f"{merchant_name} on Viator"
-            encoded_viator = urllib.parse.quote(query_viator)
-            st.link_button(f"🟢 Find {merchant_name} on Viator", f"https://www.google.com/search?q={encoded_viator}")
-            
+            st.link_button(f"🟢 Find {merchant_name} on Viator", f"https://www.google.com/search?q={urllib.parse.quote(query_viator)}")
         with col4:
-            # Google Search: "MerchantName on Get Your Guide"
             query_gyg = f"{merchant_name} on Get Your Guide"
-            encoded_gyg = urllib.parse.quote(query_gyg)
-            st.link_button(f"🔵 Find {merchant_name} on GetYourGuide", f"https://www.google.com/search?q={encoded_gyg}")
-            
+            st.link_button(f"🔵 Find {merchant_name} on GetYourGuide", f"https://www.google.com/search?q={urllib.parse.quote(query_gyg)}")
     except Exception:
         pass
 
@@ -210,8 +203,8 @@ tab1, tab2 = st.tabs(["🔗 Paste Link", "📝 Paste Text (Fallback)"])
 with tab1:
     url = st.text_input("Paste Tour Link Here")
     if st.button("Generate Summary"):
-        current_key = get_random_key()
-        if not current_key:
+        all_keys = get_all_keys()
+        if not all_keys:
             st.error("⚠️ API Key missing in Secrets.")
         elif not url:
             st.warning("⚠️ Please paste a URL.")
@@ -222,23 +215,21 @@ with tab1:
                     st.error("🚫 Website Blocked.")
                     st.info("👉 Use the 'Paste Text' tab above.")
                 elif raw_text:
-                    model_name = get_working_model(current_key)
-                    if model_name:
-                        with st.spinner(f"Processing (Model: {model_name})..."):
-                            summary = generate_summary_cached(raw_text, current_key, model_name)
-                            if "Server Busy" in summary:
-                                st.error(summary)
-                            else:
-                                st.success("Done!")
-                                st.markdown("---")
-                                st.markdown(summary)
-                                st.markdown("---")
-                                # 1. PRODUCT SEARCH
-                                display_competitor_buttons(summary)
-                                # 2. MERCHANT SEARCH
-                                display_merchant_buttons(url)
-                    else:
-                        st.error("❌ No AI model found.")
+                    # CALL THE SMART ROTATION FUNCTION
+                    with st.spinner(f"Generating Summary (Trying {len(all_keys)} keys)..."):
+                        summary = generate_summary_with_smart_rotation(raw_text, all_keys)
+                        
+                        if "All servers busy" in summary:
+                            st.error(summary)
+                        elif "AI Error" in summary:
+                            st.error(summary)
+                        else:
+                            st.success("Done!")
+                            st.markdown("---")
+                            st.markdown(summary)
+                            st.markdown("---")
+                            display_competitor_buttons(summary)
+                            display_merchant_buttons(url)
                 else:
                     st.error("❌ Invalid URL.")
 
@@ -247,23 +238,21 @@ with tab2:
     st.info("💡 Copy text from the website manually and paste it here if the link fails.")
     manual_text = st.text_area("Paste Full Text Here", height=300)
     if st.button("Generate from Text"):
-        current_key = get_random_key()
-        if not current_key:
+        all_keys = get_all_keys()
+        if not all_keys:
             st.error("⚠️ API Key missing.")
         elif len(manual_text) < 50:
             st.warning("⚠️ Please paste more text.")
         else:
             with st.spinner(f"Processing..."):
-                model_name = get_working_model(current_key)
-                if model_name:
-                    summary = generate_summary_cached(manual_text, current_key, model_name)
-                    if "Server Busy" in summary:
-                        st.error(summary)
-                    else:
-                        st.success("Success!")
-                        st.markdown("---")
-                        st.markdown(summary)
-                        st.markdown("---")
-                        display_competitor_buttons(summary)
+                summary = generate_summary_with_smart_rotation(manual_text, all_keys)
+                if "All servers busy" in summary:
+                    st.error(summary)
+                elif "AI Error" in summary:
+                    st.error(summary)
                 else:
-                    st.error("❌ No AI model found.")
+                    st.success("Success!")
+                    st.markdown("---")
+                    st.markdown(summary)
+                    st.markdown("---")
+                    display_competitor_buttons(summary)
