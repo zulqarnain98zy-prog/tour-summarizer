@@ -167,8 +167,7 @@ def display_merchant_buttons(url_input):
         
         # Extract name (e.g., headout.com -> Headout)
         merchant_name = clean_domain.split('.')[0].capitalize()
-        encoded_merchant = urllib.parse.quote(merchant_name)
-
+        
         st.markdown("---")
         st.markdown(f"### 🏢 Analyze Merchant: **{merchant_name}**")
         
@@ -184,14 +183,22 @@ def display_merchant_buttons(url_input):
             encoded_reviews = urllib.parse.quote(query_reviews)
             st.link_button(f"⭐ Check {merchant_name} Reliability", f"https://www.google.com/search?q={encoded_reviews}")
 
-        # ROW 2: FIND ON OTAs (NEW!)
+        # ROW 2: FIND ON OTAs (UPDATED TO GOOGLE SEARCH)
         st.write("") # Spacer
-        st.caption("Check if they sell directly on OTAs:")
+        st.caption("Check if they sell on OTAs (via Google Search):")
         col3, col4 = st.columns(2)
+        
         with col3:
-            st.link_button(f"🟢 Find {merchant_name} on Viator", f"https://www.viator.com/searchResults/all?text={encoded_merchant}")
+            # Google Search: "MerchantName on Viator"
+            query_viator = f"{merchant_name} on Viator"
+            encoded_viator = urllib.parse.quote(query_viator)
+            st.link_button(f"🟢 Find {merchant_name} on Viator", f"https://www.google.com/search?q={encoded_viator}")
+            
         with col4:
-            st.link_button(f"🔵 Find {merchant_name} on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_merchant}")
+            # Google Search: "MerchantName on Get Your Guide"
+            query_gyg = f"{merchant_name} on Get Your Guide"
+            encoded_gyg = urllib.parse.quote(query_gyg)
+            st.link_button(f"🔵 Find {merchant_name} on GetYourGuide", f"https://www.google.com/search?q={encoded_gyg}")
             
     except Exception:
         pass
