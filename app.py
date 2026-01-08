@@ -2,6 +2,8 @@ import streamlit as st
 import cloudscraper
 import time
 import random
+import re
+import urllib.parse
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable
@@ -19,40 +21,31 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-st.title("✈️ Global Tour Summarizer (Team Edition)")
-st.markdown("Paste a link to generate a summary. **Highlights & Captions will not have full stops.**")
+st.title("✈️ Global Tour Summarizer (Competitor Search)")
+st.markdown("Paste a link to generate a summary and **find similar products on OTAs**.")
 
 # --- API KEY ROTATION ---
-# This function randomly picks one key from your list to spread the load.
 def get_random_key():
     if "GEMINI_KEYS" in st.secrets:
-        # If you set up the list in secrets
         keys = st.secrets["GEMINI_KEYS"]
         return random.choice(keys)
     elif "GEMINI_API_KEY" in st.secrets:
-        # Fallback for old single key setup
         return st.secrets["GEMINI_API_KEY"]
     else:
         return None
 
-# --- CACHING (Saves Server Power) ---
-# If someone checked this URL in the last 24 hours, return the saved text instantly.
+# --- CACHING ---
 @st.cache_data(ttl=86400, show_spinner=False)
 def extract_text_from_url(url):
     try:
         scraper = cloudscraper.create_scraper(browser='chrome')
         response = scraper.get(url, timeout=15)
-        
-        if response.status_code == 403:
-            return "403"
-        if response.status_code != 200:
-            return None
-            
+        if response.status_code == 403: return "403"
+        if response.status_code != 200: return None
         soup = BeautifulSoup(response.content, 'html.parser')
         
         for script in soup(["script", "style", "nav", "footer", "iframe", "svg", "button", "noscript"]):
             script.extract()
-            
         for details in soup.find_all('details'):
             details.append(soup.new_string('\n')) 
             
@@ -60,13 +53,11 @@ def extract_text_from_url(url):
         lines = (line.strip() for line in text.splitlines())
         clean_lines = [line for line in lines if line]
         final_text = '\n'.join(clean_lines)
-        
         return final_text[:35000]
     except Exception:
         return "ERROR"
 
 def get_working_model(api_key):
-    """Finds a model available for the SPECIFIC key selected."""
     try:
         genai.configure(api_key=api_key)
         available_models = []
@@ -89,19 +80,13 @@ def get_working_model(api_key):
     except Exception:
         return None
 
-# Caching the AI response is tricky because prompts change, 
-# but we can cache based on the input text to save money/quota.
 @st.cache_data(ttl=86400, show_spinner=False)
 def generate_summary_cached(text, _key, model_name):
-    # The underscore in _key tells Streamlit: "Don't re-run just because the key changed, 
-    # only re-run if the TEXT changed."
-    
     genai.configure(api_key=_key)
     model = genai.GenerativeModel(model_name)
     
     prompt = """
     You are an expert travel product manager. Analyze the following tour description.
-    
     **CRITICAL INSTRUCTION:** Translate all content to **ENGLISH**.
     
     **Output strictly in this format:**
@@ -122,6 +107,7 @@ def generate_summary_cached(text, _key, model_name):
     12. **Policies**: Cancellation policy and Confirmation type.
     13. **SEO Keywords**: 3 high-traffic search keywords in English.
     14. **FAQ**: Extract any "Frequently Asked Questions" found on the page. If none, write "No FAQ found on page."
+    15. **OTA Search Term**: Provide the single BEST search query (Product Name + City) to find this exact activity on Viator or GetYourGuide. Do not use symbols.
 
     ---
     **Social Media Content**
@@ -134,10 +120,8 @@ def generate_summary_cached(text, _key, model_name):
     Tour Text:
     """ + text
     
-    # Retry Logic is handled INSIDE this cached function
     max_retries = 7
     wait_time = 5 
-    
     for attempt in range(max_retries):
         try:
             response = model.generate_content(prompt)
@@ -151,6 +135,33 @@ def generate_summary_cached(text, _key, model_name):
         except Exception as e:
             return f"AI Error: {e}"
 
+# --- EXTRACTION FUNCTION FOR SEARCH LINKS ---
+def display_competitor_buttons(summary_text):
+    # Find the "OTA Search Term" line using Regex
+    match = re.search(r"15\.\s*\*\*OTA Search Term\*\*:\s*(.*)", summary_text)
+    
+    if match:
+        # Get the clean search term (e.g., "Eiffel Tower Summit Tour Paris")
+        search_term = match.group(1).strip()
+        encoded_term = urllib.parse.quote(search_term)
+        
+        st.markdown("### 🔎 Find Similar Products")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            viator_url = f"https://www.viator.com/searchResults/all?text={encoded_term}"
+            st.link_button("🟢 Search on Viator", viator_url)
+            
+        with col2:
+            gyg_url = f"https://www.getyourguide.com/s?q={encoded_term}"
+            st.link_button("🔵 Search on GetYourGuide", gyg_url)
+            
+        with col3:
+            klook_url = f"https://www.klook.com/search?text={encoded_term}"
+            st.link_button("🟠 Search on Klook", klook_url)
+    else:
+        st.warning("Could not generate search links.")
+
 # --- MAIN INTERFACE ---
 tab1, tab2 = st.tabs(["🔗 Paste Link", "📝 Paste Text (Fallback)"])
 
@@ -158,18 +169,14 @@ tab1, tab2 = st.tabs(["🔗 Paste Link", "📝 Paste Text (Fallback)"])
 with tab1:
     url = st.text_input("Paste Tour Link Here")
     if st.button("Generate Summary"):
-        # 1. Rotate Key
         current_key = get_random_key()
-        
         if not current_key:
             st.error("⚠️ API Key missing in Secrets.")
         elif not url:
             st.warning("⚠️ Please paste a URL.")
         else:
-            with st.spinner("Analyzing website..."):
-                # Use cached extractor
+            with st.spinner("Analyzing..."):
                 raw_text = extract_text_from_url(url)
-                
                 if raw_text == "403" or raw_text == "ERROR":
                     st.error("🚫 Website Blocked.")
                     st.info("👉 Use the 'Paste Text' tab above.")
@@ -177,15 +184,17 @@ with tab1:
                     model_name = get_working_model(current_key)
                     if model_name:
                         with st.spinner(f"Processing (Model: {model_name})..."):
-                            # Use cached generator
                             summary = generate_summary_cached(raw_text, current_key, model_name)
-                            
                             if "Server Busy" in summary:
                                 st.error(summary)
                             else:
                                 st.success("Done!")
                                 st.markdown("---")
+                                # SHOW SUMMARY
                                 st.markdown(summary)
+                                st.markdown("---")
+                                # SHOW COMPETITOR BUTTONS
+                                display_competitor_buttons(summary)
                     else:
                         st.error("❌ No AI model found.")
                 else:
@@ -195,10 +204,8 @@ with tab1:
 with tab2:
     st.info("💡 Copy text from the website manually and paste it here if the link fails.")
     manual_text = st.text_area("Paste Full Text Here", height=300)
-    
     if st.button("Generate from Text"):
         current_key = get_random_key()
-        
         if not current_key:
             st.error("⚠️ API Key missing.")
         elif len(manual_text) < 50:
@@ -214,5 +221,7 @@ with tab2:
                         st.success("Success!")
                         st.markdown("---")
                         st.markdown(summary)
+                        st.markdown("---")
+                        display_competitor_buttons(summary)
                 else:
                     st.error("❌ No AI model found.")
