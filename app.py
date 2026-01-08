@@ -21,8 +21,8 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-st.title("✈️ Global Tour Summarizer (Competitor Search)")
-st.markdown("Paste a link to generate a summary and **find similar products on OTAs**.")
+st.title("✈️ Global Tour Summarizer (Competitor & Merchant Analysis)")
+st.markdown("Paste a link to generate a summary, **compare prices**, and **analyze the merchant**.")
 
 # --- API KEY ROTATION ---
 def get_random_key():
@@ -135,93 +135,34 @@ def generate_summary_cached(text, _key, model_name):
         except Exception as e:
             return f"AI Error: {e}"
 
-# --- EXTRACTION FUNCTION FOR SEARCH LINKS ---
+# --- BUTTON FUNCTION 1: FIND SIMILAR PRODUCTS ---
 def display_competitor_buttons(summary_text):
-    # Find the "OTA Search Term" line using Regex
     match = re.search(r"15\.\s*\*\*OTA Search Term\*\*:\s*(.*)", summary_text)
-    
     if match:
-        # Get the clean search term (e.g., "Eiffel Tower Summit Tour Paris")
         search_term = match.group(1).strip()
         encoded_term = urllib.parse.quote(search_term)
         
         st.markdown("### 🔎 Find Similar Products")
+        st.caption("Click to find this exact activity on other platforms:")
         col1, col2, col3 = st.columns(3)
-        
         with col1:
-            viator_url = f"https://www.viator.com/searchResults/all?text={encoded_term}"
-            st.link_button("🟢 Search on Viator", viator_url)
-            
+            st.link_button("🟢 Search on Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
         with col2:
-            gyg_url = f"https://www.getyourguide.com/s?q={encoded_term}"
-            st.link_button("🔵 Search on GetYourGuide", gyg_url)
-            
+            st.link_button("🔵 Search on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
         with col3:
-            klook_url = f"https://www.klook.com/search?text={encoded_term}"
-            st.link_button("🟠 Search on Klook", klook_url)
+            st.link_button("🟠 Search on Klook", f"https://www.klook.com/search?text={encoded_term}")
     else:
         st.warning("Could not generate search links.")
 
-# --- MAIN INTERFACE ---
-tab1, tab2 = st.tabs(["🔗 Paste Link", "📝 Paste Text (Fallback)"])
+# --- BUTTON FUNCTION 2: FIND SIMILAR MERCHANTS ---
+def display_merchant_buttons(url_input):
+    if not url_input:
+        return
 
-# METHOD 1: URL
-with tab1:
-    url = st.text_input("Paste Tour Link Here")
-    if st.button("Generate Summary"):
-        current_key = get_random_key()
-        if not current_key:
-            st.error("⚠️ API Key missing in Secrets.")
-        elif not url:
-            st.warning("⚠️ Please paste a URL.")
-        else:
-            with st.spinner("Analyzing..."):
-                raw_text = extract_text_from_url(url)
-                if raw_text == "403" or raw_text == "ERROR":
-                    st.error("🚫 Website Blocked.")
-                    st.info("👉 Use the 'Paste Text' tab above.")
-                elif raw_text:
-                    model_name = get_working_model(current_key)
-                    if model_name:
-                        with st.spinner(f"Processing (Model: {model_name})..."):
-                            summary = generate_summary_cached(raw_text, current_key, model_name)
-                            if "Server Busy" in summary:
-                                st.error(summary)
-                            else:
-                                st.success("Done!")
-                                st.markdown("---")
-                                # SHOW SUMMARY
-                                st.markdown(summary)
-                                st.markdown("---")
-                                # SHOW COMPETITOR BUTTONS
-                                display_competitor_buttons(summary)
-                    else:
-                        st.error("❌ No AI model found.")
-                else:
-                    st.error("❌ Invalid URL.")
-
-# METHOD 2: MANUAL TEXT
-with tab2:
-    st.info("💡 Copy text from the website manually and paste it here if the link fails.")
-    manual_text = st.text_area("Paste Full Text Here", height=300)
-    if st.button("Generate from Text"):
-        current_key = get_random_key()
-        if not current_key:
-            st.error("⚠️ API Key missing.")
-        elif len(manual_text) < 50:
-            st.warning("⚠️ Please paste more text.")
-        else:
-            with st.spinner(f"Processing..."):
-                model_name = get_working_model(current_key)
-                if model_name:
-                    summary = generate_summary_cached(manual_text, current_key, model_name)
-                    if "Server Busy" in summary:
-                        st.error(summary)
-                    else:
-                        st.success("Success!")
-                        st.markdown("---")
-                        st.markdown(summary)
-                        st.markdown("---")
-                        display_competitor_buttons(summary)
-                else:
-                    st.error("❌ No AI model found.")
+    try:
+        # Extract the domain (e.g., www.headout.com -> headout.com)
+        parsed_url = urllib.parse.urlparse(url_input)
+        domain = parsed_url.netloc
+        
+        # Remove 'www.' to get clean name
+        clean_domain = domain.replace("www.", "")
