@@ -21,8 +21,8 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-st.title("✈️ Global Tour Summarizer (Strict Accuracy)")
-st.markdown("Paste a link to generate a summary. **Strictly based on source text—no hallucinations.**")
+st.title("✈️ Global Tour Summarizer (Deep FAQ Scan)")
+st.markdown("Paste a link to generate a summary. **Aggressively scans for hidden FAQs.**")
 
 # --- LOAD ALL KEYS ---
 def get_all_keys():
@@ -34,7 +34,7 @@ def get_all_keys():
     else:
         return []
 
-# --- CACHING ---
+# --- CACHING & SCRAPING (UPDATED) ---
 @st.cache_data(ttl=86400, show_spinner=False)
 def extract_text_from_url(url):
     try:
@@ -44,10 +44,25 @@ def extract_text_from_url(url):
         if response.status_code != 200: return None
         soup = BeautifulSoup(response.content, 'html.parser')
         
+        # 1. Remove Junk
         for script in soup(["script", "style", "nav", "footer", "iframe", "svg", "button", "noscript"]):
             script.extract()
+            
+        # 2. ENHANCED FAQ DETECTION
+        # Standard <details> tags
         for details in soup.find_all('details'):
             details.append(soup.new_string('\n')) 
+        
+        # "Fake" Dropdowns (divs that act like accordions)
+        # We look for any element with 'faq', 'answer', 'accordion', or 'panel' in its class/id
+        for tag in soup.find_all(['div', 'section', 'li']):
+            # Get class and id strings safely
+            cls = " ".join(tag.get('class', [])) if tag.get('class') else ""
+            ids = tag.get('id', "")
+            
+            # If it looks like a hidden FAQ container, force a newline after it
+            if any(x in (cls + ids).lower() for x in ['faq', 'accordion', 'answer', 'content', 'panel', 'collapse']):
+                tag.append(soup.new_string('\n'))
             
         text = soup.get_text(separator='\n')
         lines = (line.strip() for line in text.splitlines())
@@ -95,14 +110,12 @@ def call_gemini_api(text, api_key):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     
-    # --- UPDATED PROMPT: STRICT ACCURACY MODE ---
     prompt = """
     You are an expert travel product manager. Analyze the following tour description.
     **CRITICAL INSTRUCTION:** Translate all content to **ENGLISH**.
     
     **STRICT GROUNDING RULE:** For sections 3 through 14, you must ONLY use information explicitly found in the text.
     - Do not guess.
-    - Do not use "general knowledge" (e.g., do not assume a child age policy if not written).
     - If a specific detail is missing in the text, write "Not specified" or "Not mentioned".
     
     **Output strictly in this format:**
