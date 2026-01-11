@@ -22,7 +22,7 @@ hide_st_style = """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
 st.title("⭐ Klook Western Magic Tool")
-st.markdown("Paste a link to generate a summary. **Use the 'Data Entry' tab to copy-paste into Klook fast.**")
+st.markdown("Paste a link to generate a summary. **Highlights: 10-15 words | What to Expect: 100-150 words.**")
 
 # --- LOAD ALL KEYS ---
 def get_all_keys():
@@ -146,21 +146,6 @@ def generate_summary_with_smart_rotation(text, keys):
         if cycle < max_cycles - 1: time.sleep(5)
     return "⚠️ **All servers busy:** Please wait 1 minute."
 
-# --- PARSING FUNCTION FOR DATA ENTRY ---
-def parse_summary_to_blocks(summary):
-    sections = {}
-    pattern = re.compile(r'(\d+\.\s+\*\*.*?\*\*[\s\S]*?)(?=\n\d+\.\s+\*\*|$)', re.MULTILINE)
-    matches = pattern.findall(summary)
-    
-    for match in matches:
-        split_match = re.split(r':\s*', match, 1)
-        if len(split_match) > 1:
-            raw_title = split_match[0]
-            clean_title = re.sub(r'\d+\.\s+\*\*', '', raw_title).replace('**', '').strip()
-            body = split_match[1].strip()
-            sections[clean_title] = body
-    return sections
-
 # --- DISPLAY FUNCTIONS ---
 def display_competitor_buttons(summary_text):
     match = re.search(r"15\.\s*\*\*OTA Search Term\*\*:\s*(.*)", summary_text)
@@ -240,27 +225,11 @@ with tab1:
                             st.error(summary)
                         else:
                             st.success("Done!")
-                            
-                            # --- TABS FOR RESULTS ---
-                            res_tab1, res_tab2 = st.tabs(["📄 Read View", "✍️ Data Entry (Copy-Paste)"])
-                            
-                            with res_tab1:
-                                st.markdown("---")
-                                st.markdown(summary)
-                                st.markdown("---")
-                                display_competitor_buttons(summary)
-                                display_merchant_buttons(url)
-                            
-                            with res_tab2:
-                                st.info("👇 Click the small 'Copy' icon in the top-right of each box to copy instantly.")
-                                sections = parse_summary_to_blocks(summary)
-                                
-                                # Create a grid for faster viewing
-                                for title, content in sections.items():
-                                    st.subheader(title)
-                                    st.code(content, language="text") 
-                                    st.markdown("---")
-
+                            st.markdown("---")
+                            st.markdown(summary)
+                            st.markdown("---")
+                            display_competitor_buttons(summary)
+                            display_merchant_buttons(url)
                 else:
                     st.error("❌ Invalid URL.")
 
@@ -283,19 +252,7 @@ with tab2:
                     st.error(summary)
                 else:
                     st.success("Success!")
-                    
-                    res_tab1, res_tab2 = st.tabs(["📄 Read View", "✍️ Data Entry (Copy-Paste)"])
-                    
-                    with res_tab1:
-                        st.markdown("---")
-                        st.markdown(summary)
-                        st.markdown("---")
-                        display_competitor_buttons(summary)
-                    
-                    with res_tab2:
-                        st.info("👇 Click the small 'Copy' icon in the top-right of each box to copy instantly.")
-                        sections = parse_summary_to_blocks(summary)
-                        for title, content in sections.items():
-                            st.subheader(title)
-                            st.code(content, language="text")
-                            st.markdown("---")
+                    st.markdown("---")
+                    st.markdown(summary)
+                    st.markdown("---")
+                    display_competitor_buttons(summary)
