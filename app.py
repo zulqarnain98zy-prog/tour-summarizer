@@ -24,7 +24,7 @@ hide_st_style = """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
 st.title("⭐ Klook Western Magic Tool")
-st.markdown("Generate summaries or **Compare Klook Data vs. Merchant Website** for QA.")
+st.markdown("Use Magic Tool to generate summaries or analysis in seconds!")
 
 # --- LOAD ALL KEYS ---
 def get_all_keys():
@@ -250,7 +250,7 @@ def display_merchant_buttons(url_input):
         pass
 
 # --- MAIN INTERFACE (RENAMED TABS) ---
-tab1, tab2, tab3 = st.tabs(["Generate Activity Summary", "Fallback Activity Summary", "⚖️ QA Comparison"])
+tab1, tab2, tab3 = st.tabs(["🧠 Generate Activity Summary (Link)", "✍🏻 Generate Activity Summary (Fallback)", "⚖️ QA Comparison (Testing)"])
 
 # METHOD 1: URL SUMMARY
 with tab1:
@@ -314,7 +314,7 @@ with tab3:
     col_qa_1, col_qa_2 = st.columns(2)
     
     with col_qa_1:
-        qa_klook_text = st.text_area("1️⃣ Paste Klook Backend Data", height=200, placeholder="Paste the content from the Klook Admin Panel here...")
+        qa_klook_text = st.text_area("1️⃣ Paste from Klook", height=200, placeholder="Paste the content from the Klook Admin Panel here...")
         
     with col_qa_2:
         qa_merchant_url = st.text_input("2️⃣ Paste Merchant Website Link", placeholder="https://example-tour-operator.com/tour-details")
