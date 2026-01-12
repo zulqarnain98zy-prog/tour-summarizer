@@ -7,6 +7,8 @@ import urllib.parse
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, NotFound
+from datetime import datetime
+import sys
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Klook Western Magic Tool", page_icon="⭐", layout="wide")
@@ -22,7 +24,7 @@ hide_st_style = """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
 st.title("⭐ Klook Western Magic Tool")
-st.markdown("Paste a link to generate a summary. **Highlights: 10-15 words | What to Expect: 100-150 words.**")
+st.markdown("Generate summaries or **Compare Klook Data vs. Merchant Website** for QA.")
 
 # --- LOAD ALL KEYS ---
 def get_all_keys():
@@ -85,7 +87,7 @@ def get_valid_model(api_key):
     except Exception:
         return None
 
-# --- CORE GENERATION FUNCTION ---
+# --- CORE GENERATION FUNCTION (SUMMARY) ---
 def call_gemini_api(text, api_key):
     model_name = get_valid_model(api_key)
     if not model_name: raise ValueError("No available models found.")
@@ -128,8 +130,56 @@ def call_gemini_api(text, api_key):
     response = model.generate_content(prompt)
     return response.text
 
+# --- CORE QA FUNCTION (REASON INCLUDED) ---
+def call_qa_comparison(klook_data, merchant_data, api_key):
+    model_name = get_valid_model(api_key)
+    if not model_name: raise ValueError("No available models found.")
+
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name)
+    
+    prompt = f"""
+    You are a Strict Quality Assurance (QA) Auditor.
+    Your job is to compare the "Klook Backend Data" (Draft) against the "Merchant Website Data" (Source of Truth).
+
+    **OBJECTIVE:** Determine if the Klook Data is accurate. If there are contradictions, we must REJECT.
+
+    **INPUT DATA:**
+    ---
+    **SOURCE A (Klook Draft):**
+    {klook_data}
+    
+    ---
+    **SOURCE B (Merchant Official Site):**
+    {merchant_data}
+    ---
+
+    **OUTPUT FORMAT:**
+    
+    ### 🛡️ QA VERDICT
+    **Status:** [✅ APPROVED / ❌ REJECT / ⚠️ WARNING]
+    **Reason:** [One short sentence explaining WHY it was rejected. Example: "Rejected because Klook price is higher than official site." OR "Rejected because Start Time is missing on Klook."]
+
+    ### 🔍 Discrepancy Analysis
+    | Feature | Klook Says | Merchant Website Says | Impact |
+    | :--- | :--- | :--- | :--- |
+    | **Price** | [Extract] | [Extract] | [High/Low] |
+    | **Start Time** | [Extract] | [Extract] | [High/Low] |
+    | **Inclusions** | [Extract] | [Extract] | [High/Low] |
+    | **Cancellation**| [Extract] | [Extract] | [High/Low] |
+
+    ### 📝 Missing Information
+    List any critical details found on the Merchant Site that are COMPLETELY MISSING from Klook.
+
+    ### 💡 Recommendation
+    One sentence advice to the agent (e.g., "Update the start time to 9:00 AM to match the website").
+    """
+    
+    response = model.generate_content(prompt)
+    return response.text
+
 # --- SMART ROTATION LOGIC ---
-def generate_summary_with_smart_rotation(text, keys):
+def smart_rotation_wrapper(task_type, keys, *args):
     if not keys: return "⚠️ No API keys found."
     random.shuffle(keys)
     max_cycles = 2
@@ -137,8 +187,10 @@ def generate_summary_with_smart_rotation(text, keys):
     for cycle in range(max_cycles):
         for index, key in enumerate(keys):
             try:
-                result = call_gemini_api(text, key)
-                return result
+                if task_type == 'summary':
+                    return call_gemini_api(args[0], key)
+                elif task_type == 'qa':
+                    return call_qa_comparison(args[0], args[1], key)
             except (ResourceExhausted, ServiceUnavailable, NotFound, ValueError):
                 continue
             except Exception as e:
@@ -197,10 +249,10 @@ def display_merchant_buttons(url_input):
     except Exception:
         pass
 
-# --- MAIN INTERFACE ---
-tab1, tab2 = st.tabs(["🔗 Paste Link", "📝 Paste Text (Fallback)"])
+# --- MAIN INTERFACE (RENAMED TABS) ---
+tab1, tab2, tab3 = st.tabs(["Generate Activity Summary", "Fallback Activity Summary", "⚖️ QA Comparison"])
 
-# METHOD 1: URL
+# METHOD 1: URL SUMMARY
 with tab1:
     url = st.text_input("Paste Tour Link Here")
     if st.button("Generate Summary"):
@@ -214,16 +266,14 @@ with tab1:
                 raw_text = extract_text_from_url(url)
                 if raw_text == "403" or raw_text == "ERROR":
                     st.error("🚫 Website Blocked.")
-                    st.info("👉 Use the 'Paste Text' tab above.")
                 elif raw_text:
                     with st.spinner(f"Generating Summary..."):
-                        summary = generate_summary_with_smart_rotation(raw_text, all_keys)
+                        summary = smart_rotation_wrapper('summary', all_keys, raw_text)
                         
-                        if "All servers busy" in summary:
-                            st.error(summary)
-                        elif "AI Error" in summary:
+                        if "All servers busy" in summary or "AI Error" in summary:
                             st.error(summary)
                         else:
+                            print(f"✅ SUMMARY SUCCESS | {datetime.now()} | URL: {url}")
                             st.success("Done!")
                             st.markdown("---")
                             st.markdown(summary)
@@ -233,7 +283,7 @@ with tab1:
                 else:
                     st.error("❌ Invalid URL.")
 
-# METHOD 2: MANUAL TEXT
+# METHOD 2: MANUAL TEXT SUMMARY
 with tab2:
     st.info("💡 Copy text from the website manually and paste it here if the link fails.")
     manual_text = st.text_area("Paste Full Text Here", height=300)
@@ -245,14 +295,50 @@ with tab2:
             st.warning("⚠️ Please paste more text.")
         else:
             with st.spinner(f"Processing..."):
-                summary = generate_summary_with_smart_rotation(manual_text, all_keys)
-                if "All servers busy" in summary:
-                    st.error(summary)
-                elif "AI Error" in summary:
+                summary = smart_rotation_wrapper('summary', all_keys, manual_text)
+                if "All servers busy" in summary or "AI Error" in summary:
                     st.error(summary)
                 else:
+                    print(f"✅ SUMMARY SUCCESS | {datetime.now()} | Manual Text")
                     st.success("Success!")
                     st.markdown("---")
                     st.markdown(summary)
                     st.markdown("---")
                     display_competitor_buttons(summary)
+
+# METHOD 3: QA COMPARISON
+with tab3:
+    st.markdown("### 🛡️ Quality Assurance Check")
+    st.info("Paste the draft text from Klook Backend and the link to the Merchant's real website. The AI will find discrepancies.")
+    
+    col_qa_1, col_qa_2 = st.columns(2)
+    
+    with col_qa_1:
+        qa_klook_text = st.text_area("1️⃣ Paste Klook Backend Data", height=200, placeholder="Paste the content from the Klook Admin Panel here...")
+        
+    with col_qa_2:
+        qa_merchant_url = st.text_input("2️⃣ Paste Merchant Website Link", placeholder="https://example-tour-operator.com/tour-details")
+        
+    if st.button("⚔️ Compare & Validate"):
+        all_keys = get_all_keys()
+        if not all_keys:
+            st.error("⚠️ API Key missing.")
+        elif not qa_klook_text or not qa_merchant_url:
+            st.warning("⚠️ Please fill in both fields.")
+        else:
+            with st.spinner("Scraping Merchant Website..."):
+                qa_merchant_text = extract_text_from_url(qa_merchant_url)
+                
+                if qa_merchant_text == "403" or qa_merchant_text == "ERROR":
+                    st.error("🚫 Merchant Website Blocked. Please copy text manually.")
+                elif qa_merchant_text:
+                    with st.spinner("Comparing Data (Finding Discrepancies)..."):
+                        qa_result = smart_rotation_wrapper('qa', all_keys, qa_klook_text, qa_merchant_text)
+                        
+                        if "All servers busy" in qa_result or "AI Error" in qa_result:
+                            st.error(qa_result)
+                        else:
+                            print(f"✅ QA SUCCESS | {datetime.now()} | Compared Klook Data vs {qa_merchant_url}")
+                            st.success("Comparison Complete!")
+                            st.markdown("---")
+                            st.markdown(qa_result)
