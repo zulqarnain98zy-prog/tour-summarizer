@@ -11,7 +11,7 @@ from datetime import datetime
 import sys
 import io
 
-# --- TRY IMPORTING FILE READERS (Handle missing libraries gracefully) ---
+# --- TRY IMPORTING FILE READERS ---
 try:
     from pypdf import PdfReader
 except ImportError:
@@ -47,38 +47,42 @@ def get_all_keys():
     else:
         return []
 
-# --- FILE EXTRACTION LOGIC ---
-def extract_text_from_file(uploaded_file):
-    """Extracts text from PDF, DOCX, or TXT files."""
+# --- SPECIAL AUDIT SCRAPER (COUNTS IMAGES) ---
+def extract_audit_data(url):
+    """
+    Special scraper for the Audit tab.
+    Returns: (text_content, image_count)
+    """
     try:
-        file_type = uploaded_file.type
+        scraper = cloudscraper.create_scraper(browser='chrome')
+        response = scraper.get(url, timeout=15)
+        if response.status_code != 200: return None, 0
         
-        # 1. PDF Handling
-        if "pdf" in file_type:
-            if PdfReader is None:
-                return "⚠️ Error: 'pypdf' library not installed. Please add it to requirements.txt."
-            reader = PdfReader(uploaded_file)
-            text = ""
-            for page in reader.pages:
-                text += page.extract_text() + "\n"
-            return text
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # 1. Count Images (Heuristic: Count jpg/png inside main content divs)
+        # We look for img tags. This is an estimate as lazy loading might hide some.
+        images = soup.find_all('img')
+        valid_images = [img for img in images if img.get('src') and ('jpg' in img.get('src') or 'jpeg' in img.get('src'))]
+        image_count = len(valid_images)
+        
+        # 2. Extract Text
+        for script in soup(["script", "style", "nav", "footer", "iframe", "svg", "button", "noscript"]):
+            script.extract()
+        for details in soup.find_all('details'):
+            details.append(soup.new_string('\n')) 
+        
+        text = soup.get_text(separator='\n')
+        lines = (line.strip() for line in text.splitlines())
+        clean_lines = [line for line in lines if line]
+        final_text = '\n'.join(clean_lines)
+        
+        return final_text[:35000], image_count
+        
+    except Exception:
+        return "ERROR", 0
 
-        # 2. DOCX Handling
-        elif "wordprocessingml" in file_type or "docx" in uploaded_file.name:
-            if Document is None:
-                return "⚠️ Error: 'python-docx' library not installed. Please add it to requirements.txt."
-            doc = Document(uploaded_file)
-            text = "\n".join([para.text for para in doc.paragraphs])
-            return text
-
-        # 3. Plain Text Handling
-        else:
-            return uploaded_file.getvalue().decode("utf-8")
-            
-    except Exception as e:
-        return f"⚠️ Error reading file: {e}"
-
-# --- CACHING & SCRAPING ---
+# --- STANDARD TEXT EXTRACTION ---
 @st.cache_data(ttl=86400, show_spinner=False)
 def extract_text_from_url(url):
     try:
@@ -90,10 +94,8 @@ def extract_text_from_url(url):
         
         for script in soup(["script", "style", "nav", "footer", "iframe", "svg", "button", "noscript"]):
             script.extract()
-            
         for details in soup.find_all('details'):
             details.append(soup.new_string('\n')) 
-        
         for tag in soup.find_all(['div', 'section', 'li']):
             cls = " ".join(tag.get('class', [])) if tag.get('class') else ""
             ids = tag.get('id', "")
@@ -108,318 +110,268 @@ def extract_text_from_url(url):
     except Exception:
         return "ERROR"
 
+def extract_text_from_file(uploaded_file):
+    try:
+        file_type = uploaded_file.type
+        if "pdf" in file_type:
+            if PdfReader is None: return "⚠️ Error: 'pypdf' missing."
+            reader = PdfReader(uploaded_file)
+            text = ""
+            for page in reader.pages: text += page.extract_text() + "\n"
+            return text
+        elif "wordprocessingml" in file_type or "docx" in uploaded_file.name:
+            if Document is None: return "⚠️ Error: 'python-docx' missing."
+            doc = Document(uploaded_file)
+            return "\n".join([para.text for para in doc.paragraphs])
+        else:
+            return uploaded_file.getvalue().decode("utf-8")
+    except Exception as e:
+        return f"⚠️ Error: {e}"
+
 # --- MODEL FINDER ---
 def get_valid_model(api_key):
     try:
         genai.configure(api_key=api_key)
         models = genai.list_models()
         available_names = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
-        
-        priority_list = [
-            'models/gemini-1.5-flash',
-            'models/gemini-1.5-flash-latest',
-            'models/gemini-1.5-flash-001',
-            'models/gemini-1.5-pro',
-            'models/gemini-pro'
-        ]
-        
-        for model in priority_list:
-            if model in available_names:
-                return model
+        priority = ['models/gemini-1.5-flash', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-pro']
+        for m in priority:
+            if m in available_names: return m
         return available_names[0] if available_names else None
     except Exception:
         return None
 
-# --- CORE GENERATION FUNCTION (SUMMARY) ---
-def call_gemini_api(text, api_key):
-    model_name = get_valid_model(api_key)
-    if not model_name: raise ValueError("No available models found.")
+# --- GENERATION FUNCTIONS ---
 
+def call_gemini_api(text, api_key):
+    """Standard Summary Generator"""
+    model_name = get_valid_model(api_key)
+    if not model_name: raise ValueError("No model.")
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     
     prompt = """
-    You are an expert travel product manager. Analyze the following tour description.
-    **CRITICAL INSTRUCTION:** Translate all content to **ENGLISH**.
-    
-    **STRICT GROUNDING RULE:** Sections 3-14 must be strictly based on the text. Write "Not specified" if missing.
-    
-    **Output strictly in this format:**
-
-    1. **Highlights**: Exactly 4 bullet points.
-       * *Constraint:* 10-15 words each. No full stops.
-    2. **What to Expect**: 100-150 words. Max 800 chars.
+    You are an expert travel product manager. Analyze the tour.
+    **Translate to ENGLISH.**
+    **Output strict format:**
+    1. **Highlights**: 4 bullets (10-15 words, no full stop).
+    2. **What to Expect**: 100-150 words (Max 800 chars).
     3. **Activity Duration**: Total time.
-    4. **Full Itinerary**: Step-by-step list.
+    4. **Full Itinerary**: Step-by-step.
     5. **Start Time**: Specific times.
     6. **Inclusions**: List.
     7. **Exclusions**: List.
     8. **Child Policy**: Age rules.
-    9. **Accessibility**: Disability info.
-    10. **Group Size**: Min/Max pax.
-    11. **Prices**: Adult/Child prices.
-    12. **Cancellation Policy**: Specific rules.
+    9. **Accessibility**: Info.
+    10. **Group Size**: Min/Max.
+    11. **Prices**: Categories.
+    12. **Cancellation Policy**: Rules.
     13. **SEO Keywords**: 3 keywords.
     14. **FAQ**: Hidden FAQs.
     15. **OTA Search Term**: Product Name + City.
-
     ---
-    **Social Media Content**
-    Generate 10 photo captions (1 sentence, 10-15 words each).
-    
+    **Social Media**: 10 captions (1 sentence, 10-15 words).
     Tour Text:
     """ + text
-    
-    response = model.generate_content(prompt)
-    return response.text
+    return model.generate_content(prompt).text
 
-# --- CORE QA FUNCTION (REASON INCLUDED) ---
-def call_qa_comparison(klook_data, merchant_data, api_key):
+def call_qa_comparison(klook, merchant, api_key):
+    """QA Comparison"""
     model_name = get_valid_model(api_key)
-    if not model_name: raise ValueError("No available models found.")
+    if not model_name: raise ValueError("No model.")
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name)
+    prompt = f"""
+    Compare Klook Data (Draft) vs Merchant Data (Source).
+    **OBJECTIVE:** Determine if Klook is accurate.
+    **SOURCE A (Klook):** {klook}
+    **SOURCE B (Merchant):** {merchant}
+    **OUTPUT:**
+    ### 🛡️ QA VERDICT
+    **Status:** [✅ APPROVED / ❌ REJECT / ⚠️ WARNING]
+    **Reason:** [Short sentence]
+    ### 🔍 Discrepancy Analysis
+    | Feature | Klook | Merchant | Impact |
+    | :--- | :--- | :--- | :--- |
+    | **Price** | | | |
+    | **Start Time** | | | |
+    | **Inclusions** | | | |
+    | **Cancellation**| | | |
+    ### 📝 Missing Info
+    List missing details.
+    ### 💡 Recommendation
+    One sentence advice.
+    """
+    return model.generate_content(prompt).text
 
+def call_klook_audit(text, image_count, api_key):
+    """New Audit Function"""
+    model_name = get_valid_model(api_key)
+    if not model_name: raise ValueError("No model.")
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     
     prompt = f"""
-    You are a Strict Quality Assurance (QA) Auditor.
-    Your job is to compare the "Klook Backend Data" (Draft) against the "Merchant Website Data" (Source of Truth).
+    You are a strictly logical Klook Product Auditor. 
+    Audit the product page text below based on the following Strict Criteria.
 
-    **OBJECTIVE:** Determine if the Klook Data is accurate. If there are contradictions, we must REJECT.
+    **METADATA PROVIDED:**
+    - **Detected Image Count (Approx):** {image_count} images found in code.
 
-    **INPUT DATA:**
-    ---
-    **SOURCE A (Klook Draft):**
-    {klook_data}
-    
-    ---
-    **SOURCE B (Merchant Official Site):**
-    {merchant_data}
-    ---
+    **CRITERIA TO CHECK:**
+    1. **Photos:** Must have Minimum 6 photos. (Check the Image Count provided above). *Note: Ratio must be 4:3, verify visually.*
+    2. **Cancellation Policy:**
+       - If Day Tour: Must be "Instant Confirmation" AND "24 hours free cancellation".
+       - If Multi-day Tour: Must be "24 hours cancellation" OR "48 hours".
+    3. **Inventory:** Must appear to have 3 months of inventory (Look for "Bookable", "Year round", or specific date ranges in text).
+    4. **Itinerary:** Must be filled in (Look for a detailed timeline).
 
     **OUTPUT FORMAT:**
     
-    ### 🛡️ QA VERDICT
-    **Status:** [✅ APPROVED / ❌ REJECT / ⚠️ WARNING]
-    **Reason:** [One short sentence explaining WHY it was rejected. Example: "Rejected because Klook price is higher than official site." OR "Rejected because Start Time is missing on Klook."]
-
-    ### 🔍 Discrepancy Analysis
-    | Feature | Klook Says | Merchant Website Says | Impact |
-    | :--- | :--- | :--- | :--- |
-    | **Price** | [Extract] | [Extract] | [High/Low] |
-    | **Start Time** | [Extract] | [Extract] | [High/Low] |
-    | **Inclusions** | [Extract] | [Extract] | [High/Low] |
-    | **Cancellation**| [Extract] | [Extract] | [High/Low] |
-
-    ### 📝 Missing Information
-    List any critical details found on the Merchant Site that are COMPLETELY MISSING from Klook.
-
-    ### 💡 Recommendation
-    One sentence advice to the agent (e.g., "Update the start time to 9:00 AM to match the website").
-    """
+    ### 📋 Klook Product Audit
     
-    response = model.generate_content(prompt)
-    return response.text
+    | Criteria | Status | Observation |
+    | :--- | :--- | :--- |
+    | **1. Banner & Photos** | [✅ Pass / ❌ Fail] | Found {image_count} images. (Rule: Min 6). Ratio check required manually. |
+    | **2. Cancellation** | [✅ Pass / ❌ Fail] | [Quote the policy found in text]. Matches rule? |
+    | **3. Inventory** | [✅ Pass / ⚠️ Unsure] | [Quote availability clues]. (Note: Calendar is dynamic). |
+    | **4. Itinerary** | [✅ Pass / ❌ Fail] | [Is there a detailed timeline?] |
 
-# --- SMART ROTATION LOGIC ---
+    **OVERALL VERDICT:** [✅ READY TO PUBLISH / ❌ NEEDS REVISION]
+    **Action Items:** [List what needs fixing, if any]
+
+    **Tour Text:**
+    {text}
+    """
+    return model.generate_content(prompt).text
+
+# --- SMART ROTATION WRAPPER ---
 def smart_rotation_wrapper(task_type, keys, *args):
     if not keys: return "⚠️ No API keys found."
     random.shuffle(keys)
     max_cycles = 2
-    
     for cycle in range(max_cycles):
         for index, key in enumerate(keys):
             try:
-                if task_type == 'summary':
-                    return call_gemini_api(args[0], key)
-                elif task_type == 'qa':
-                    return call_qa_comparison(args[0], args[1], key)
-            except (ResourceExhausted, ServiceUnavailable, NotFound, ValueError):
-                continue
-            except Exception as e:
-                return f"AI Error: {e}"
+                if task_type == 'summary': return call_gemini_api(args[0], key)
+                elif task_type == 'qa': return call_qa_comparison(args[0], args[1], key)
+                elif task_type == 'audit': return call_klook_audit(args[0], args[1], key)
+            except (ResourceExhausted, ServiceUnavailable, NotFound, ValueError): continue
+            except Exception as e: return f"AI Error: {e}"
         if cycle < max_cycles - 1: time.sleep(5)
     return "⚠️ **All servers busy:** Please wait 1 minute."
 
 # --- DISPLAY FUNCTIONS ---
-def display_competitor_buttons(summary_text):
-    match = re.search(r"15\.\s*\*\*OTA Search Term\*\*:\s*(.*)", summary_text)
+def display_buttons(summary):
+    match = re.search(r"15\.\s*\*\*OTA Search Term\*\*:\s*(.*)", summary)
     if match:
-        search_term = match.group(1).strip()
-        encoded_term = urllib.parse.quote(search_term)
+        term = urllib.parse.quote(match.group(1).strip())
         st.markdown("### 🔎 Find Similar Products")
-        col1, col2, col3 = st.columns(3)
-        with col1: st.link_button("🟢 Search on Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
-        with col2: st.link_button("🔵 Search on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
-        with col3: 
-            klook_query = f'site:klook.com "{search_term}"'
-            st.link_button("🟠 Search on Klook", f"https://www.google.com/search?q={urllib.parse.quote(klook_query)}")
-        st.write("") 
-        col4, col5, col6 = st.columns(3)
-        with col4: st.link_button("🦉 Search on TripAdvisor", f"https://www.tripadvisor.com/Search?q={encoded_term}")
-        with col5: 
-            fh_query = f'"{search_term}" FareHarbor'
-            st.link_button("⚓ Find on FareHarbor", f"https://www.google.com/search?q={urllib.parse.quote(fh_query)}")
-        with col6: 
-            rezdy_query = f'"{search_term}" Rezdy'
-            st.link_button("📅 Find on Rezdy", f"https://www.google.com/search?q={urllib.parse.quote(rezdy_query)}")
+        c1, c2, c3 = st.columns(3)
+        with c1: st.link_button("🟢 Viator", f"https://www.viator.com/searchResults/all?text={term}")
+        with c2: st.link_button("🔵 GetYourGuide", f"https://www.getyourguide.com/s?q={term}")
+        with c3: st.link_button("🟠 Klook", f"https://www.google.com/search?q={urllib.parse.quote(f'site:klook.com {match.group(1).strip()}')}")
 
-def display_merchant_buttons(url_input):
-    if not url_input: return
-    try:
-        parsed_url = urllib.parse.urlparse(url_input)
-        domain = parsed_url.netloc
-        clean_domain = domain.replace("www.", "")
-        merchant_name = clean_domain.split('.')[0].capitalize()
-        
-        st.markdown("---")
-        st.markdown(f"### 🏢 Analyze Merchant: **{merchant_name}**")
-        col1, col2 = st.columns(2)
-        with col1:
-            query = f"sites like {clean_domain}"
-            st.link_button(f"🔎 Find Competitors to {merchant_name}", f"https://www.google.com/search?q={urllib.parse.quote(query)}")
-        with col2:
-            query_reviews = f"{merchant_name} website reviews scam legit"
-            st.link_button(f"⭐ Check {merchant_name} Reliability", f"https://www.google.com/search?q={urllib.parse.quote(query_reviews)}")
-        st.write("")
-        col3, col4 = st.columns(2)
-        with col3:
-            query_viator = f"{merchant_name} on Viator"
-            st.link_button(f"🟢 Find {merchant_name} on Viator", f"https://www.google.com/search?q={urllib.parse.quote(query_viator)}")
-        with col4:
-            query_gyg = f"{merchant_name} on Get Your Guide"
-            st.link_button(f"🔵 Find {merchant_name} on GetYourGuide", f"https://www.google.com/search?q={urllib.parse.quote(query_gyg)}")
-    except Exception:
-        pass
-
-# --- MAIN INTERFACE (4 TABS) ---
-tab1, tab2, tab3, tab4 = st.tabs([
-    "🧠 Generate Activity Summary (Link)", 
-    "✍🏻 Generate Activity Summary (Fallback)", 
-    "📂 Generate Activity Summary (File/PDF)",
-    "⚖️ QA Comparison (Testing)"
+# --- MAIN TABS ---
+t1, t2, t3, t4, t5 = st.tabs([
+    "🧠 Summary (Link)", 
+    "✍🏻 Summary (Fallback)", 
+    "📂 Summary (File)",
+    "⚖️ QA Comparison",
+    "✅ Klook Standard Audit"
 ])
 
-# METHOD 1: URL SUMMARY
-with tab1:
-    url = st.text_input("Paste Tour Link Here")
-    if st.button("Generate Summary"):
-        all_keys = get_all_keys()
-        if not all_keys:
-            st.error("⚠️ API Key missing in Secrets.")
-        elif not url:
+# 1. LINK SUMMARY
+with t1:
+    url = st.text_input("Paste Tour Link")
+    if st.button("Generate Summary", key="btn1"):
+        keys = get_all_keys()
+        if not keys or not url: st.error("Check Keys/URL")
+        else:
+            with st.spinner("Processing..."):
+                txt = extract_text_from_url(url)
+                if txt and "ERROR" not in txt:
+                    res = smart_rotation_wrapper('summary', keys, txt)
+                    print(f"✅ LINK SUCCESS | {datetime.now()}")
+                    st.success("Done!")
+                    st.markdown("---"); st.markdown(res); st.markdown("---")
+                    display_buttons(res)
+                else: st.error("Error reading URL")
+
+# 2. TEXT SUMMARY
+with t2:
+    txt_in = st.text_area("Paste Text")
+    if st.button("Generate", key="btn2"):
+        keys = get_all_keys()
+        if not keys or len(txt_in)<50: st.error("Paste more text")
+        else:
+            with st.spinner("Processing..."):
+                res = smart_rotation_wrapper('summary', keys, txt_in)
+                print(f"✅ TEXT SUCCESS | {datetime.now()}")
+                st.success("Done!")
+                st.markdown("---"); st.markdown(res)
+
+# 3. FILE SUMMARY
+with t3:
+    up_file = st.file_uploader("Upload PDF/Docx", type=["pdf","docx","txt"])
+    if st.button("Generate", key="btn3"):
+        keys = get_all_keys()
+        if not keys or not up_file: st.error("Check File")
+        else:
+            with st.spinner("Reading..."):
+                txt = extract_text_from_file(up_file)
+                if "Error" not in txt:
+                    res = smart_rotation_wrapper('summary', keys, txt)
+                    print(f"✅ FILE SUCCESS | {datetime.now()}")
+                    st.success("Done!")
+                    st.markdown("---"); st.markdown(res)
+                else: st.error(txt)
+
+# 4. QA COMPARISON
+with t4:
+    st.info("Compare Klook Draft vs Merchant Site")
+    c1, c2 = st.columns(2)
+    k_txt = c1.text_area("1️⃣ Paste from Klook")
+    m_url = c2.text_input("2️⃣ Merchant URL")
+    if st.button("Compare", key="btn4"):
+        keys = get_all_keys()
+        if not keys or not k_txt or not m_url: st.error("Missing Data")
+        else:
+            with st.spinner("Comparing..."):
+                m_txt = extract_text_from_url(m_url)
+                if m_txt and "ERROR" not in m_txt:
+                    res = smart_rotation_wrapper('qa', keys, k_txt, m_txt)
+                    print(f"✅ QA SUCCESS | {datetime.now()}")
+                    st.success("Done!")
+                    st.markdown("---"); st.markdown(res)
+                else: st.error("Error reading Merchant URL")
+
+# 5. KLOOK AUDIT (NEW!)
+with t5:
+    st.markdown("### ✅ Klook Product Auditor")
+    st.info("Paste a Klook Product Link. We will check: **6+ Photos, Cancellation Policy, Inventory, & Itinerary.**")
+    audit_url = st.text_input("Paste Klook Product URL")
+    
+    if st.button("Run Audit", key="btn5"):
+        keys = get_all_keys()
+        if not keys:
+            st.error("⚠️ API Key missing.")
+        elif not audit_url:
             st.warning("⚠️ Please paste a URL.")
         else:
-            with st.spinner("Analyzing..."):
-                raw_text = extract_text_from_url(url)
-                if raw_text == "403" or raw_text == "ERROR":
+            with st.spinner("Auditing Product..."):
+                # Use special Audit Scraper (returns text + image count)
+                audit_text, img_count = extract_audit_data(audit_url)
+                
+                if audit_text == "ERROR" or audit_text == "403":
                     st.error("🚫 Website Blocked.")
-                elif raw_text:
-                    with st.spinner(f"Generating Summary..."):
-                        summary = smart_rotation_wrapper('summary', all_keys, raw_text)
-                        
-                        if "All servers busy" in summary or "AI Error" in summary:
-                            st.error(summary)
-                        else:
-                            print(f"✅ SUMMARY SUCCESS | {datetime.now()} | URL: {url}")
-                            st.success("Done!")
-                            st.markdown("---")
-                            st.markdown(summary)
-                            st.markdown("---")
-                            display_competitor_buttons(summary)
-                            display_merchant_buttons(url)
                 else:
-                    st.error("❌ Invalid URL.")
-
-# METHOD 2: MANUAL TEXT SUMMARY
-with tab2:
-    st.info("💡 Copy text from the website manually and paste it here if the link fails.")
-    manual_text = st.text_area("Paste Full Text Here", height=300)
-    if st.button("Generate from Text"):
-        all_keys = get_all_keys()
-        if not all_keys:
-            st.error("⚠️ API Key missing.")
-        elif len(manual_text) < 50:
-            st.warning("⚠️ Please paste more text.")
-        else:
-            with st.spinner(f"Processing..."):
-                summary = smart_rotation_wrapper('summary', all_keys, manual_text)
-                if "All servers busy" in summary or "AI Error" in summary:
-                    st.error(summary)
-                else:
-                    print(f"✅ SUMMARY SUCCESS | {datetime.now()} | Manual Text")
-                    st.success("Success!")
-                    st.markdown("---")
-                    st.markdown(summary)
-                    st.markdown("---")
-                    display_competitor_buttons(summary)
-
-# METHOD 3: FILE UPLOAD (RENAMED)
-with tab3:
-    st.info("📂 Upload a PDF, Docx, or Text file containing the activity details.")
-    uploaded_file = st.file_uploader("Upload File", type=["pdf", "docx", "txt"])
-    
-    if st.button("Generate from File"):
-        all_keys = get_all_keys()
-        if not all_keys:
-            st.error("⚠️ API Key missing.")
-        elif not uploaded_file:
-            st.warning("⚠️ Please upload a file.")
-        else:
-            with st.spinner("Reading File..."):
-                file_text = extract_text_from_file(uploaded_file)
-                
-                if "Error" in file_text and "⚠️" in file_text:
-                    st.error(file_text)
-                elif len(file_text) < 50:
-                    st.warning("⚠️ File content is too short or empty.")
-                else:
-                    with st.spinner(f"Processing File..."):
-                        summary = smart_rotation_wrapper('summary', all_keys, file_text)
-                        
-                        if "All servers busy" in summary or "AI Error" in summary:
-                            st.error(summary)
-                        else:
-                            print(f"✅ FILE SUCCESS | {datetime.now()} | File: {uploaded_file.name}")
-                            st.success("Success!")
-                            st.markdown("---")
-                            st.markdown(summary)
-                            st.markdown("---")
-                            display_competitor_buttons(summary)
-
-# METHOD 4: QA COMPARISON
-with tab4:
-    st.markdown("### 🛡️ Quality Assurance Check")
-    st.info("Paste the draft text from Klook Backend and the link to the Merchant's real website. The AI will find discrepancies.")
-    
-    col_qa_1, col_qa_2 = st.columns(2)
-    
-    with col_qa_1:
-        qa_klook_text = st.text_area("1️⃣ Paste from Klook", height=200, placeholder="Paste the content from the Klook Admin Panel here...")
-        
-    with col_qa_2:
-        qa_merchant_url = st.text_input("2️⃣ Paste Merchant Website Link", placeholder="https://example-tour-operator.com/tour-details")
-        
-    if st.button("⚔️ Compare & Validate"):
-        all_keys = get_all_keys()
-        if not all_keys:
-            st.error("⚠️ API Key missing.")
-        elif not qa_klook_text or not qa_merchant_url:
-            st.warning("⚠️ Please fill in both fields.")
-        else:
-            with st.spinner("Scraping Merchant Website..."):
-                qa_merchant_text = extract_text_from_url(qa_merchant_url)
-                
-                if qa_merchant_text == "403" or qa_merchant_text == "ERROR":
-                    st.error("🚫 Merchant Website Blocked. Please copy text manually.")
-                elif qa_merchant_text:
-                    with st.spinner("Comparing Data (Finding Discrepancies)..."):
-                        qa_result = smart_rotation_wrapper('qa', all_keys, qa_klook_text, qa_merchant_text)
-                        
-                        if "All servers busy" in qa_result or "AI Error" in qa_result:
-                            st.error(qa_result)
-                        else:
-                            print(f"✅ QA SUCCESS | {datetime.now()} | Compared Klook Data vs {qa_merchant_url}")
-                            st.success("Comparison Complete!")
-                            st.markdown("---")
-                            st.markdown(qa_result)
+                    audit_res = smart_rotation_wrapper('audit', keys, audit_text, img_count)
+                    
+                    if "AI Error" in audit_res:
+                        st.error(audit_res)
+                    else:
+                        print(f"✅ AUDIT SUCCESS | {datetime.now()} | {audit_url}")
+                        st.success("Audit Complete!")
+                        st.markdown("---")
+                        st.markdown(audit_res)
