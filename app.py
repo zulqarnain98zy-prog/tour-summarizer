@@ -9,6 +9,18 @@ import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, NotFound
 from datetime import datetime
 import sys
+import io
+
+# --- TRY IMPORTING FILE READERS (Handle missing libraries gracefully) ---
+try:
+    from pypdf import PdfReader
+except ImportError:
+    PdfReader = None
+
+try:
+    from docx import Document
+except ImportError:
+    Document = None
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Klook Western Magic Tool", page_icon="⭐", layout="wide")
@@ -34,6 +46,37 @@ def get_all_keys():
         return [st.secrets["GEMINI_API_KEY"]]
     else:
         return []
+
+# --- FILE EXTRACTION LOGIC ---
+def extract_text_from_file(uploaded_file):
+    """Extracts text from PDF, DOCX, or TXT files."""
+    try:
+        file_type = uploaded_file.type
+        
+        # 1. PDF Handling
+        if "pdf" in file_type:
+            if PdfReader is None:
+                return "⚠️ Error: 'pypdf' library not installed. Please add it to requirements.txt."
+            reader = PdfReader(uploaded_file)
+            text = ""
+            for page in reader.pages:
+                text += page.extract_text() + "\n"
+            return text
+
+        # 2. DOCX Handling
+        elif "wordprocessingml" in file_type or "docx" in uploaded_file.name:
+            if Document is None:
+                return "⚠️ Error: 'python-docx' library not installed. Please add it to requirements.txt."
+            doc = Document(uploaded_file)
+            text = "\n".join([para.text for para in doc.paragraphs])
+            return text
+
+        # 3. Plain Text Handling
+        else:
+            return uploaded_file.getvalue().decode("utf-8")
+            
+    except Exception as e:
+        return f"⚠️ Error reading file: {e}"
 
 # --- CACHING & SCRAPING ---
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -249,8 +292,13 @@ def display_merchant_buttons(url_input):
     except Exception:
         pass
 
-# --- MAIN INTERFACE (RENAMED TABS) ---
-tab1, tab2, tab3 = st.tabs(["🧠 Generate Activity Summary (Link)", "✍🏻 Generate Activity Summary (Fallback)", "⚖️ QA Comparison (Testing)"])
+# --- MAIN INTERFACE (4 TABS) ---
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🧠 Generate Activity Summary (Link)", 
+    "✍🏻 Generate Activity Summary (Fallback)", 
+    "📂 Generate Activity Summary (File/PDF)",
+    "⚖️ QA Comparison (Testing)"
+])
 
 # METHOD 1: URL SUMMARY
 with tab1:
@@ -306,8 +354,41 @@ with tab2:
                     st.markdown("---")
                     display_competitor_buttons(summary)
 
-# METHOD 3: QA COMPARISON
+# METHOD 3: FILE UPLOAD (RENAMED)
 with tab3:
+    st.info("📂 Upload a PDF, Docx, or Text file containing the activity details.")
+    uploaded_file = st.file_uploader("Upload File", type=["pdf", "docx", "txt"])
+    
+    if st.button("Generate from File"):
+        all_keys = get_all_keys()
+        if not all_keys:
+            st.error("⚠️ API Key missing.")
+        elif not uploaded_file:
+            st.warning("⚠️ Please upload a file.")
+        else:
+            with st.spinner("Reading File..."):
+                file_text = extract_text_from_file(uploaded_file)
+                
+                if "Error" in file_text and "⚠️" in file_text:
+                    st.error(file_text)
+                elif len(file_text) < 50:
+                    st.warning("⚠️ File content is too short or empty.")
+                else:
+                    with st.spinner(f"Processing File..."):
+                        summary = smart_rotation_wrapper('summary', all_keys, file_text)
+                        
+                        if "All servers busy" in summary or "AI Error" in summary:
+                            st.error(summary)
+                        else:
+                            print(f"✅ FILE SUCCESS | {datetime.now()} | File: {uploaded_file.name}")
+                            st.success("Success!")
+                            st.markdown("---")
+                            st.markdown(summary)
+                            st.markdown("---")
+                            display_competitor_buttons(summary)
+
+# METHOD 4: QA COMPARISON
+with tab4:
     st.markdown("### 🛡️ Quality Assurance Check")
     st.info("Paste the draft text from Klook Backend and the link to the Merchant's real website. The AI will find discrepancies.")
     
