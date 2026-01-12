@@ -228,7 +228,7 @@ def google_map_link(location):
     query = urllib.parse.quote(location)
     return f"[{location}](https://www.google.com/maps/search/?api=1&query={query})"
 
-def render_json_results(json_text):
+def render_json_results(json_text, url_input=None):
     """Parses JSON and creates the Tabs UI"""
     try:
         data = json.loads(json_text)
@@ -327,24 +327,69 @@ def render_json_results(json_text):
     with tabs[8]:
         st.write(data.get("pricing", {}).get("details", '-'))
 
-    # TAB J: Analysis
+    # TAB J: Analysis (RESTORED FULL LAYOUT)
     with tabs[9]:
         an = data.get("analysis", {})
         search_term = an.get("ota_search_term", "")
         st.write(f"**OTA Search Term:** `{search_term}`")
         
         if search_term:
-            term = urllib.parse.quote(search_term)
-            st.markdown("### 🔎 Find Similar Products")
-            c1, c2, c3 = st.columns(3)
-            with c1: st.link_button("🟢 Search Viator", f"https://www.viator.com/searchResults/all?text={term}")
-            with c2: st.link_button("🔵 Search GYG", f"https://www.getyourguide.com/s?q={term}")
-            with c3: st.link_button("🟠 Search Klook", f"https://www.google.com/search?q={urllib.parse.quote(f'site:klook.com {search_term}')}")
+            encoded_term = urllib.parse.quote(search_term)
             
-            st.markdown("### 🏢 Analyze Merchant")
-            c4, c5 = st.columns(2)
-            with c4: st.link_button("🔎 Competitors", f"https://www.google.com/search?q=related:{term}")
-            with c5: st.link_button("⭐ Reliability", f"https://www.google.com/search?q={term} reviews scam legit")
+            # --- 1. FIND SIMILAR PRODUCTS (Full Grid) ---
+            st.markdown("### 🔎 Find Similar Products")
+            
+            # Row 1
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.link_button("🟢 Search on Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
+            with col2:
+                st.link_button("🔵 Search on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
+            with col3:
+                klook_query = f'site:klook.com "{search_term}"'
+                st.link_button("🟠 Search on Klook", f"https://www.google.com/search?q={urllib.parse.quote(klook_query)}")
+                
+            # Row 2
+            col4, col5, col6 = st.columns(3)
+            with col4:
+                st.link_button("🦉 Search on TripAdvisor", f"https://www.tripadvisor.com/Search?q={encoded_term}")
+            with col5:
+                fh_query = f'"{search_term}" FareHarbor'
+                st.link_button("⚓ Find on FareHarbor", f"https://www.google.com/search?q={urllib.parse.quote(fh_query)}")
+            with col6:
+                rezdy_query = f'"{search_term}" Rezdy'
+                st.link_button("📅 Find on Rezdy", f"https://www.google.com/search?q={urllib.parse.quote(rezdy_query)}")
+
+        # --- 2. ANALYZE MERCHANT (Restored Logic) ---
+        if url_input:
+            try:
+                parsed_url = urllib.parse.urlparse(url_input)
+                domain = parsed_url.netloc
+                clean_domain = domain.replace("www.", "")
+                merchant_name = clean_domain.split('.')[0].capitalize()
+                
+                st.markdown("---")
+                st.markdown(f"### 🏢 Analyze Merchant: **{merchant_name}**")
+                
+                m_col1, m_col2 = st.columns(2)
+                with m_col1:
+                    query = f"sites like {clean_domain}"
+                    st.link_button(f"🔎 Find Competitors to {merchant_name}", f"https://www.google.com/search?q={urllib.parse.quote(query)}")
+                with m_col2:
+                    query_reviews = f"{merchant_name} website reviews scam legit"
+                    st.link_button(f"⭐ Check {merchant_name} Reliability", f"https://www.google.com/search?q={urllib.parse.quote(query_reviews)}")
+
+                st.write("")
+                st.caption("Check if they sell on OTAs (via Google Search):")
+                m_col3, m_col4 = st.columns(2)
+                with m_col3:
+                    query_viator = f"{merchant_name} on Viator"
+                    st.link_button(f"🟢 Find {merchant_name} on Viator", f"https://www.google.com/search?q={urllib.parse.quote(query_viator)}")
+                with m_col4:
+                    query_gyg = f"{merchant_name} on Get Your Guide"
+                    st.link_button(f"🔵 Find {merchant_name} on GetYourGuide", f"https://www.google.com/search?q={urllib.parse.quote(query_gyg)}")
+            except Exception:
+                pass
 
 # --- MAIN TABS ---
 t1, t2, t3, t4 = st.tabs([
@@ -367,7 +412,7 @@ with t1:
                     res = smart_rotation_wrapper('summary', keys, txt)
                     print(f"✅ LINK SUCCESS | {datetime.now()}")
                     if "AI Error" in res: st.error(res)
-                    else: render_json_results(res)
+                    else: render_json_results(res, url_input=url)
                 else: st.error("Error reading URL")
 
 # 2. TEXT SUMMARY
