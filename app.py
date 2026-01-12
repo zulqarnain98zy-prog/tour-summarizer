@@ -120,10 +120,30 @@ def call_gemini_json_summary(text, api_key):
     # Force JSON mode
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
+    # --- TAG LIST ---
+    tag_list = """
+    Interactive, Romantic, Customizable, Guided, Private, Skip-the-line, Small Group, VIP, All Inclusive, 
+    Architecture, Canal, Cultural, Historical, Movie, Museum, Music, Religious Site, Pilgrimage, Spiritual, Temple, UNESCO site, Local Village, Old Town, 
+    TV, Movie and TV, Heritage, Downtown, City Highlights, Downtown Highlights, 
+    Alpine Route, Coral Reef, Desert, Glacier, Mangrove, Marine Life, Mountain, Rainforest, Safari, Sand Dune, Volcano, Waterfall, River, 
+    Cherry Blossom, Fireflies, Maple Leaf, Northern Lights, Stargazing, National Park, Nature, Wildlife, Sunrise, Sunset, Dolphin Watching, Whale Watching, Canyon, Flower Viewing, Tulip, Lavender, Spring, Summer, Autumn, Winter, Coastal, Beachfront, 
+    Bar Hopping, Dining, Wine Tasting, Cheese, Chocolate, Food, Gourmet, Street Food, Brewery, Distillery, Whiskey, Seafood, Local Food, Late Night Food, 
+    ATV, Bouldering, Diving, Fishing, Fruit Picking, Hiking, Island Hopping, Kayaking, Night Fishing, Ski, Snorkeling, Trekking, Caving, Sports, Stadium, Horse Riding, Parasailing, 
+    Transfers, Transfers With Tickets, Boat, Catamaran, Charter, Cruise, Ferry, Helicopter, Hop-On Hop-Off Bus, Limousine, Open-top Bus, Speedboat, Yacht, Walking, Bus, Bike, Electric Bike, River Cruise, Longtail Boat, Hot Air Balloon, 
+    Hot Spring, Beach, Yoga, Meditation, 
+    City, Countryside, Night, Shopping, Sightseeing, Photography, Self-guided, Shore Excursion, Adventure, Discovery, Backstreets, Hidden Gems
+    """
+    
     prompt = """
     You are an expert travel product manager. Analyze the tour text.
     **CRITICAL:** Output ONLY valid JSON. No Markdown. No code blocks.
     **Language:** English.
+
+    **SELLING POINT RULES:**
+    Select relevant tags ONLY from this list: """ + tag_list + """
+
+    **HIGHLIGHTS RULES:**
+    Exactly 4 bullet points. Each bullet must be 10-15 words. No full stops.
 
     Structure the JSON exactly like this:
     {
@@ -133,8 +153,9 @@ def call_gemini_json_summary(text, api_key):
             "group_size": "Min/Max pax",
             "duration": "Total time",
             "main_attractions": "Key spots visited",
+            "highlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],
             "what_to_expect": "100-150 words description (max 800 chars)",
-            "selling_points": "Key selling points (history, food, nature, etc.)"
+            "selling_points": ["Tag 1", "Tag 2", "Tag 3"]
         },
         "start_end": {
             "start_time": "Time(s)",
@@ -255,7 +276,23 @@ def render_json_results(json_text, url_input=None):
         c2.write(f"**⏳ Duration:** {info.get('duration', '-')}")
         st.divider()
         st.write(f"**🎡 Main Attractions:** {info.get('main_attractions', '-')}")
-        st.write(f"**✨ Selling Points:** {info.get('selling_points', '-')}")
+        
+        # Display Highlights
+        st.subheader("🌟 Highlights")
+        highlights = info.get("highlights", [])
+        if isinstance(highlights, list):
+            for h in highlights: st.write(f"- {h}")
+        else:
+            st.write(highlights)
+
+        st.subheader("🏷️ Selling Points")
+        # Display Selling Points as Clean Tags
+        points = info.get('selling_points', [])
+        if isinstance(points, list):
+            st.write(", ".join([f"`{p}`" for p in points]))
+        else:
+            st.write(points)
+
         st.info(f"**What to Expect:**\n\n{info.get('what_to_expect', '-')}")
 
     # TAB B: Start & End
