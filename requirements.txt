@@ -2,4 +2,6 @@ streamlit
 cloudscraper
 beautifulsoup4
 google-generativeai
+pypdf
+python-docx
 
