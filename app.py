@@ -145,6 +145,9 @@ def call_gemini_json_summary(text, api_key):
     **HIGHLIGHTS RULES:**
     Exactly 4 bullet points. Each bullet must be 10-15 words. No full stops.
 
+    **PHOTO CAPTIONS RULES:**
+    Create 10 engaging photo captions (1 sentence each) that would fit the tour.
+
     Structure the JSON exactly like this:
     {
         "basic_info": {
@@ -168,8 +171,8 @@ def call_gemini_json_summary(text, api_key):
             "steps": ["Stop 1: ...", "Stop 2: ...", "Stop 3: ..."],
             "note": "Mention if transport/food is between stops"
         },
-        "photos": {
-            "captions": ["Caption 1 (10-15 words)", "Caption 2...", "Caption 10..."]
+        "photo_data": {
+            "captions": ["Caption 1", "Caption 2", "Caption 3", "Caption 4", "Caption 5", "Caption 6", "Caption 7", "Caption 8", "Caption 9", "Caption 10"]
         },
         "policies": {
             "cancellation": "Policy rules",
@@ -324,9 +327,16 @@ def render_json_results(json_text, url_input=None):
     # TAB D: Photos
     with tabs[3]:
         st.warning("⚠️ Note: AI cannot crop/resize real photos. Please match these captions to your 4:3 images.")
-        captions = data.get("photos", {}).get("captions", [])
-        for i, cap in enumerate(captions, 1):
-            st.write(f"**{i}.** {cap}")
+        
+        # Pull from "photo_data" -> "captions"
+        photo_data = data.get("photo_data", {})
+        captions = photo_data.get("captions", [])
+        
+        if not captions:
+            st.info("No captions generated.")
+        else:
+            for i, cap in enumerate(captions, 1):
+                st.write(f"**{i}.** {cap}")
 
     # TAB E: Policies
     with tabs[4]:
