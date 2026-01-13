@@ -4,4 +4,5 @@ beautifulsoup4
 google-generativeai
 pypdf
 python-docx
+Pillow
 
