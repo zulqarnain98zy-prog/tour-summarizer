@@ -73,7 +73,7 @@ def extract_text_from_file(uploaded_file):
     except Exception as e:
         return f"⚠️ Error: {e}"
 
-# --- IMAGE RESIZING LOGIC (UPDATED 8:5) ---
+# --- IMAGE RESIZING LOGIC (8:5) ---
 def resize_image_klook_standard(uploaded_file):
     """Resizes and crops an image to 8:5 ratio (1280x800 target)."""
     if Image is None:
@@ -427,8 +427,8 @@ t1, t2, t3, t4, t5 = st.tabs([
     "🧠 Generate Activity Summary (Link)", 
     "✍🏻 Generate Activity Summary (Fallback)", 
     "📂 Generate Activity Summary (File/PDF)",
-    "⚖️ QA Comparison (Testing)",
-    "🖼️ Photo Resizer (8:5)"
+    "🖼️ Photo Resizer (8:5)",
+    "⚖️ QA Comparison (Testing)"
 ])
 
 # 1. LINK SUMMARY
@@ -476,27 +476,8 @@ with t3:
                     else: render_json_results(res)
                 else: st.error(txt)
 
-# 4. QA COMPARISON
+# 4. PHOTO RESIZER (UPDATED 8:5) - MOVED HERE
 with t4:
-    st.info("Compare Klook Draft vs Merchant Site")
-    c1, c2 = st.columns(2)
-    k_txt = c1.text_area("1️⃣ Paste from Klook")
-    m_url = c2.text_input("2️⃣ Merchant URL")
-    if st.button("Compare", key="btn4"):
-        keys = get_all_keys()
-        if not keys or not k_txt or not m_url: st.error("Missing Data")
-        else:
-            with st.spinner("Comparing..."):
-                m_txt = extract_text_from_url(m_url)
-                if m_txt and "ERROR" not in m_txt:
-                    res = smart_rotation_wrapper('qa', keys, k_txt, m_txt)
-                    print(f"✅ QA SUCCESS | {datetime.now()}")
-                    st.success("Done!")
-                    st.markdown("---"); st.markdown(res)
-                else: st.error("Error reading Merchant URL")
-
-# 5. PHOTO RESIZER (UPDATED 8:5)
-with t5:
     st.info("🖼️ Upload photos to automatically crop/resize them to **8:5 ratio (1280x800)**.")
     uploaded_imgs = st.file_uploader("Upload Images", type=['jpg','jpeg','png'], accept_multiple_files=True)
     
@@ -539,3 +520,22 @@ with t5:
                     mime="image/jpeg"
                 )
             st.divider()
+
+# 5. QA COMPARISON - MOVED HERE
+with t5:
+    st.info("Compare Klook Draft vs Merchant Site")
+    c1, c2 = st.columns(2)
+    k_txt = c1.text_area("1️⃣ Paste from Klook")
+    m_url = c2.text_input("2️⃣ Merchant URL")
+    if st.button("Compare", key="btn4"):
+        keys = get_all_keys()
+        if not keys or not k_txt or not m_url: st.error("Missing Data")
+        else:
+            with st.spinner("Comparing..."):
+                m_txt = extract_text_from_url(m_url)
+                if m_txt and "ERROR" not in m_txt:
+                    res = smart_rotation_wrapper('qa', keys, k_txt, m_txt)
+                    print(f"✅ QA SUCCESS | {datetime.now()}")
+                    st.success("Done!")
+                    st.markdown("---"); st.markdown(res)
+                else: st.error("Error reading Merchant URL")
