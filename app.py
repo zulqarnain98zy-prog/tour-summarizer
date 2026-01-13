@@ -11,8 +11,9 @@ from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, No
 from datetime import datetime
 import sys
 import io
+import zipfile
 
-# --- TRY IMPORTING FILE READERS ---
+# --- TRY IMPORTING LIBRARIES ---
 try:
     from pypdf import PdfReader
 except ImportError:
@@ -22,6 +23,11 @@ try:
     from docx import Document
 except ImportError:
     Document = None
+
+try:
+    from PIL import Image, ImageOps
+except ImportError:
+    Image = None
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Klook Western Magic Tool", page_icon="⭐", layout="wide")
@@ -37,7 +43,7 @@ hide_st_style = """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
 st.title("⭐ Klook Western Magic Tool")
-st.markdown("Use Magic Tool to generate summaries or analysis in seconds!")
+st.markdown("Use Magic Tool to generate summaries, analysis, or resize photos in seconds!")
 
 # --- LOAD ALL KEYS ---
 def get_all_keys():
@@ -66,6 +72,36 @@ def extract_text_from_file(uploaded_file):
             return uploaded_file.getvalue().decode("utf-8")
     except Exception as e:
         return f"⚠️ Error: {e}"
+
+# --- IMAGE RESIZING LOGIC (UPDATED 8:5) ---
+def resize_image_klook_standard(uploaded_file):
+    """Resizes and crops an image to 8:5 ratio (1280x800 target)."""
+    if Image is None:
+        return None, "⚠️ Error: 'Pillow' library missing."
+    
+    try:
+        img = Image.open(uploaded_file)
+        
+        # Define target size (8:5 ratio)
+        target_width = 1280
+        target_height = 800
+        
+        # 1. Resize/Crop to Fill 1280x800
+        img_resized = ImageOps.fit(img, (target_width, target_height), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+        
+        # 2. Save to buffer
+        buf = io.BytesIO()
+        img_format = img.format if img.format else 'JPEG'
+        # Convert RGBA to RGB if saving as JPEG
+        if img_resized.mode == 'RGBA' and img_format == 'JPEG':
+            img_resized = img_resized.convert('RGB')
+            
+        img_resized.save(buf, format=img_format, quality=90)
+        byte_im = buf.getvalue()
+        
+        return byte_im, None
+    except Exception as e:
+        return None, f"Error processing image: {e}"
 
 # --- CACHING & SCRAPING ---
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -108,19 +144,14 @@ def get_valid_model(api_key):
     except Exception:
         return None
 
-# --- GENERATION FUNCTIONS (JSON & QA) ---
+# --- GENERATION FUNCTIONS ---
 
 def call_gemini_json_summary(text, api_key):
-    """
-    Forces the AI to return a strict JSON object to populate the tabs.
-    """
     model_name = get_valid_model(api_key)
     if not model_name: raise ValueError("No model.")
     genai.configure(api_key=api_key)
-    # Force JSON mode
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
-    # --- TAG LIST ---
     tag_list = """
     Interactive, Romantic, Customizable, Guided, Private, Skip-the-line, Small Group, VIP, All Inclusive, 
     Architecture, Canal, Cultural, Historical, Movie, Museum, Music, Religious Site, Pilgrimage, Spiritual, Temple, UNESCO site, Local Village, Old Town, 
@@ -253,7 +284,6 @@ def google_map_link(location):
     return f"[{location}](https://www.google.com/maps/search/?api=1&query={query})"
 
 def render_json_results(json_text, url_input=None):
-    """Parses JSON and creates the Tabs UI"""
     try:
         data = json.loads(json_text)
     except json.JSONDecodeError:
@@ -261,7 +291,6 @@ def render_json_results(json_text, url_input=None):
         st.text(json_text)
         return
 
-    # --- TAB DEFINITIONS ---
     tab_names = [
         "ℹ️ Basic Info", "⏰ Start & End", "🗺️ Itinerary", "📸 Photos", 
         "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", 
@@ -269,7 +298,6 @@ def render_json_results(json_text, url_input=None):
     ]
     tabs = st.tabs(tab_names)
 
-    # TAB A: Basic Info
     with tabs[0]:
         info = data.get("basic_info", {})
         c1, c2 = st.columns(2)
@@ -279,72 +307,48 @@ def render_json_results(json_text, url_input=None):
         c2.write(f"**⏳ Duration:** {info.get('duration', '-')}")
         st.divider()
         st.write(f"**🎡 Main Attractions:** {info.get('main_attractions', '-')}")
-        
-        # Display Highlights
         st.subheader("🌟 Highlights")
         highlights = info.get("highlights", [])
         if isinstance(highlights, list):
             for h in highlights: st.write(f"- {h}")
-        else:
-            st.write(highlights)
-
+        else: st.write(highlights)
         st.subheader("🏷️ Selling Points")
-        # Display Selling Points as Clean Tags
         points = info.get('selling_points', [])
-        if isinstance(points, list):
-            st.write(", ".join([f"`{p}`" for p in points]))
-        else:
-            st.write(points)
-
+        if isinstance(points, list): st.write(", ".join([f"`{p}`" for p in points]))
+        else: st.write(points)
         st.info(f"**What to Expect:**\n\n{info.get('what_to_expect', '-')}")
 
-    # TAB B: Start & End
     with tabs[1]:
         se = data.get("start_end", {})
         c1, c2 = st.columns(2)
         c1.success(f"**🟢 Start Time:** {se.get('start_time', '-')}")
         c2.error(f"**🔴 End Time:** {se.get('end_time', '-')}")
         st.write(f"**🚕 Method:** {se.get('join_method', '-')}")
-        
         st.write("**📍 Meet-up / Pick-up Points:**")
         points = se.get('meet_pick_points', [])
         if isinstance(points, list):
             for p in points: st.markdown(f"- {google_map_link(p)}")
         else: st.markdown(google_map_link(str(points)))
-        
         st.write(f"**🏁 Drop-off:** {se.get('drop_off', '-')}")
 
-    # TAB C: Itinerary
     with tabs[2]:
         itin = data.get("itinerary", {})
         st.caption(f"**Note:** {itin.get('note', '')}")
         steps = itin.get("steps", [])
         if isinstance(steps, list):
             for step in steps: st.write(step)
-        else:
-            st.write(steps)
+        else: st.write(steps)
 
-    # TAB D: Photos
     with tabs[3]:
         st.warning("⚠️ Note: AI cannot crop/resize real photos. Please match these captions to your 4:3 images.")
-        
-        # Pull from "photo_data" -> "captions"
-        photo_data = data.get("photo_data", {})
-        captions = photo_data.get("captions", [])
-        
-        if not captions:
-            st.info("No captions generated.")
-        else:
-            for i, cap in enumerate(captions, 1):
-                st.write(f"**{i}.** {cap}")
+        captions = data.get("photo_data", {}).get("captions", [])
+        for i, cap in enumerate(captions, 1): st.write(f"**{i}.** {cap}")
 
-    # TAB E: Policies
     with tabs[4]:
         pol = data.get("policies", {})
         st.error(f"**Cancellation Policy:** {pol.get('cancellation', '-')}")
         st.write(f"**📞 Merchant Contact:** {pol.get('merchant_contact', '-')}")
 
-    # TAB F: Inclusions
     with tabs[5]:
         inc = data.get("inclusions", {})
         c1, c2 = st.columns(2)
@@ -355,69 +359,51 @@ def render_json_results(json_text, url_input=None):
             st.write("❌ **Not Included:**")
             for x in inc.get("excluded", []): st.write(f"- {x}")
 
-    # TAB G: Restrictions
     with tabs[6]:
         res = data.get("restrictions", {})
         st.write(f"**👶 Child Policy:** {res.get('child_policy', '-')}")
         st.write(f"**♿ Accessibility:** {res.get('accessibility', '-')}")
         st.write(f"**📝 Additional Info:** {res.get('additional_info', '-')}")
-        with st.expander("View FAQ"):
-            st.write(res.get('faq', 'No FAQ found.'))
+        with st.expander("View FAQ"): st.write(res.get('faq', 'No FAQ found.'))
 
-    # TAB H: SEO
     with tabs[7]:
         seo = data.get("seo", {}).get("keywords", [])
         st.write("**🔑 Keywords:**")
         st.code(", ".join(seo))
 
-    # TAB I: Price
     with tabs[8]:
         st.write(data.get("pricing", {}).get("details", '-'))
 
-    # TAB J: Analysis (RESTORED FULL LAYOUT)
     with tabs[9]:
         an = data.get("analysis", {})
         search_term = an.get("ota_search_term", "")
         st.write(f"**OTA Search Term:** `{search_term}`")
-        
         if search_term:
             encoded_term = urllib.parse.quote(search_term)
-            
-            # --- 1. FIND SIMILAR PRODUCTS (Full Grid) ---
             st.markdown("### 🔎 Find Similar Products")
-            
-            # Row 1
             col1, col2, col3 = st.columns(3)
-            with col1:
-                st.link_button("🟢 Search on Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
-            with col2:
-                st.link_button("🔵 Search on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
-            with col3:
+            with col1: st.link_button("🟢 Search on Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
+            with col2: st.link_button("🔵 Search on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
+            with col3: 
                 klook_query = f'site:klook.com "{search_term}"'
                 st.link_button("🟠 Search on Klook", f"https://www.google.com/search?q={urllib.parse.quote(klook_query)}")
-                
-            # Row 2
             col4, col5, col6 = st.columns(3)
-            with col4:
-                st.link_button("🦉 Search on TripAdvisor", f"https://www.tripadvisor.com/Search?q={encoded_term}")
-            with col5:
+            with col4: st.link_button("🦉 Search on TripAdvisor", f"https://www.tripadvisor.com/Search?q={encoded_term}")
+            with col5: 
                 fh_query = f'"{search_term}" FareHarbor'
                 st.link_button("⚓ Find on FareHarbor", f"https://www.google.com/search?q={urllib.parse.quote(fh_query)}")
-            with col6:
+            with col6: 
                 rezdy_query = f'"{search_term}" Rezdy'
                 st.link_button("📅 Find on Rezdy", f"https://www.google.com/search?q={urllib.parse.quote(rezdy_query)}")
 
-        # --- 2. ANALYZE MERCHANT (Restored Logic) ---
         if url_input:
             try:
                 parsed_url = urllib.parse.urlparse(url_input)
                 domain = parsed_url.netloc
                 clean_domain = domain.replace("www.", "")
                 merchant_name = clean_domain.split('.')[0].capitalize()
-                
                 st.markdown("---")
                 st.markdown(f"### 🏢 Analyze Merchant: **{merchant_name}**")
-                
                 m_col1, m_col2 = st.columns(2)
                 with m_col1:
                     query = f"sites like {clean_domain}"
@@ -425,7 +411,6 @@ def render_json_results(json_text, url_input=None):
                 with m_col2:
                     query_reviews = f"{merchant_name} website reviews scam legit"
                     st.link_button(f"⭐ Check {merchant_name} Reliability", f"https://www.google.com/search?q={urllib.parse.quote(query_reviews)}")
-
                 st.write("")
                 st.caption("Check if they sell on OTAs (via Google Search):")
                 m_col3, m_col4 = st.columns(2)
@@ -435,15 +420,15 @@ def render_json_results(json_text, url_input=None):
                 with m_col4:
                     query_gyg = f"{merchant_name} on Get Your Guide"
                     st.link_button(f"🔵 Find {merchant_name} on GetYourGuide", f"https://www.google.com/search?q={urllib.parse.quote(query_gyg)}")
-            except Exception:
-                pass
+            except Exception: pass
 
 # --- MAIN TABS ---
-t1, t2, t3, t4 = st.tabs([
+t1, t2, t3, t4, t5 = st.tabs([
     "🧠 Generate Activity Summary (Link)", 
     "✍🏻 Generate Activity Summary (Fallback)", 
     "📂 Generate Activity Summary (File/PDF)",
-    "⚖️ QA Comparison (Testing)"
+    "⚖️ QA Comparison (Testing)",
+    "🖼️ Photo Resizer (8:5)"
 ])
 
 # 1. LINK SUMMARY
@@ -509,3 +494,48 @@ with t4:
                     st.success("Done!")
                     st.markdown("---"); st.markdown(res)
                 else: st.error("Error reading Merchant URL")
+
+# 5. PHOTO RESIZER (UPDATED 8:5)
+with t5:
+    st.info("🖼️ Upload photos to automatically crop/resize them to **8:5 ratio (1280x800)**.")
+    uploaded_imgs = st.file_uploader("Upload Images", type=['jpg','jpeg','png'], accept_multiple_files=True)
+    
+    if uploaded_imgs:
+        # Buffer to hold zip file
+        zip_buffer = io.BytesIO()
+        processed_images = []
+        
+        # Process all images
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+            for img_file in uploaded_imgs:
+                processed_bytes, error = resize_image_klook_standard(img_file)
+                if processed_bytes:
+                    file_name = f"resized_{img_file.name}"
+                    # Add to zip
+                    zip_file.writestr(file_name, processed_bytes)
+                    processed_images.append((img_file.name, processed_bytes))
+        
+        # Show "Download All" if multiple
+        if len(processed_images) > 1:
+            st.download_button(
+                label="⬇️ Download All as ZIP",
+                data=zip_buffer.getvalue(),
+                file_name="resized_images_1280x800.zip",
+                mime="application/zip",
+                use_container_width=True
+            )
+            st.divider()
+
+        # Show individual previews
+        for name, data in processed_images:
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                st.image(data, caption=name, width=150)
+            with col2:
+                st.download_button(
+                    label=f"⬇️ Download {name}",
+                    data=data,
+                    file_name=f"resized_{name}",
+                    mime="image/jpeg"
+                )
+            st.divider()
