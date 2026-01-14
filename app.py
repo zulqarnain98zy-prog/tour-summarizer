@@ -311,13 +311,13 @@ def call_gemini_vision_caption(image_bytes, api_key):
     image_parts = [{"mime_type": "image/jpeg", "data": image_bytes}]
     
     prompt = """
-    Write a caption for this photo.
-    Strict Rules:
-    1. Start with an experiential verb (e.g., Experience, Explore, Discover, Savor, Indulge in, Roam, Enjoy).
-    2. Length: 10 to 12 words exactly.
-    3. No emojis.
-    4. No full stops or punctuation marks.
-    5. Single sentence only.
+    Write a captivating social media caption for this photo.
+    
+    **CRITICAL CONSTRAINTS:**
+    1. **Start with one of these verbs:** Experience, Explore, Discover, Savor, Indulge in, Roam, Enjoy.
+    2. **Word Count:** STRICTLY between 10 and 12 words. Count your words before outputting.
+    3. **No Punctuation:** Do not use full stops, commas, or exclamation marks.
+    4. **No Emojis:** Strictly text only.
     """
     
     try:
