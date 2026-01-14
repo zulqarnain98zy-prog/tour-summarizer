@@ -7,7 +7,7 @@ import urllib.parse
 import json
 from bs4 import BeautifulSoup
 import google.generativeai as genai
-from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, NotFound
+from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, NotFound, InvalidArgument
 from datetime import datetime
 import sys
 import io
@@ -131,16 +131,58 @@ def extract_text_from_url(url):
     except Exception:
         return "ERROR"
 
-# --- MODEL FINDER ---
+# --- MODEL FINDER (TEXT) ---
 def get_valid_model(api_key):
     try:
         genai.configure(api_key=api_key)
         models = genai.list_models()
         available_names = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
-        priority = ['models/gemini-1.5-flash', 'models/gemini-1.5-flash-latest', 'models/gemini-1.5-pro']
+        
+        # Priority list for text generation
+        priority = [
+            'models/gemini-1.5-flash',
+            'models/gemini-1.5-flash-latest',
+            'models/gemini-1.5-pro',
+            'models/gemini-1.5-pro-latest',
+            'models/gemini-1.0-pro',
+            'models/gemini-pro'
+        ]
         for m in priority:
             if m in available_names: return m
         return available_names[0] if available_names else None
+    except Exception:
+        return None
+
+# --- MODEL FINDER (VISION) ---
+def get_vision_model(api_key):
+    """Specifically finds a model that supports images."""
+    try:
+        genai.configure(api_key=api_key)
+        models = genai.list_models()
+        # Get all models
+        available_names = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
+        
+        # Priority list for VISION (Images)
+        # 1.5 Flash is best/fastest for images. 1.0 Pro does NOT support images.
+        priority = [
+            'models/gemini-1.5-flash',
+            'models/gemini-1.5-flash-latest',
+            'models/gemini-1.5-flash-001',
+            'models/gemini-1.5-pro',
+            'models/gemini-1.5-pro-latest',
+            'models/gemini-pro-vision' # Old vision model
+        ]
+        
+        for m in priority:
+            if m in available_names: return m
+            
+        # Fallback: Try to guess if standard priority failed but list exists
+        # If we can't find a known vision model, we default to the first available 1.5 model
+        # as 1.5 usually supports multimodal.
+        for m in available_names:
+            if "1.5" in m: return m
+            
+        return None
     except Exception:
         return None
 
@@ -264,13 +306,11 @@ def call_qa_comparison(klook, merchant, api_key):
 
 def call_gemini_vision_caption(image_bytes, api_key):
     """Generates a caption for an image."""
-    model_name = get_valid_model(api_key)
-    if not model_name: raise ValueError("No model.")
+    # Use specific vision model finder
+    model_name = get_vision_model(api_key)
     
-    # Check if model supports vision (Flash or 1.5 Pro do)
-    if "gemini-1.5" not in model_name and "gemini-pro-vision" not in model_name:
-         # Fallback to flash if default is standard pro
-         model_name = "models/gemini-1.5-flash"
+    if not model_name:
+        return "Caption Error: No Vision Model Found (Check API Key)"
 
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
