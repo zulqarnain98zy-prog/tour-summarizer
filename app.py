@@ -159,26 +159,22 @@ def get_vision_model(api_key):
     try:
         genai.configure(api_key=api_key)
         models = genai.list_models()
-        # Get all models
         available_names = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
         
         # Priority list for VISION (Images)
-        # 1.5 Flash is best/fastest for images. 1.0 Pro does NOT support images.
         priority = [
             'models/gemini-1.5-flash',
             'models/gemini-1.5-flash-latest',
             'models/gemini-1.5-flash-001',
             'models/gemini-1.5-pro',
             'models/gemini-1.5-pro-latest',
-            'models/gemini-pro-vision' # Old vision model
+            'models/gemini-pro-vision'
         ]
         
         for m in priority:
             if m in available_names: return m
             
-        # Fallback: Try to guess if standard priority failed but list exists
-        # If we can't find a known vision model, we default to the first available 1.5 model
-        # as 1.5 usually supports multimodal.
+        # Fallback to any 1.5 model
         for m in available_names:
             if "1.5" in m: return m
             
@@ -306,19 +302,23 @@ def call_qa_comparison(klook, merchant, api_key):
 
 def call_gemini_vision_caption(image_bytes, api_key):
     """Generates a caption for an image."""
-    # Use specific vision model finder
     model_name = get_vision_model(api_key)
-    
-    if not model_name:
-        return "Caption Error: No Vision Model Found (Check API Key)"
+    if not model_name: return "Caption Error: No Vision Model Found (Check API Key)"
 
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     
-    # Prepare image for API
     image_parts = [{"mime_type": "image/jpeg", "data": image_bytes}]
     
-    prompt = "Write an engaging social media caption for this travel photo. Max 15 words. No emojis inside."
+    prompt = """
+    Write a caption for this photo.
+    Strict Rules:
+    1. Start with an experiential verb (e.g., Experience, Explore, Discover, Savor, Indulge in, Roam, Enjoy).
+    2. Length: 10 to 12 words exactly.
+    3. No emojis.
+    4. No full stops or punctuation marks.
+    5. Single sentence only.
+    """
     
     try:
         response = model.generate_content([prompt, image_parts[0]])
