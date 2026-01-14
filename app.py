@@ -557,24 +557,30 @@ with t3:
                     else: render_json_results(res)
                 else: st.error(txt)
 
-# 4. PHOTO RESIZER (8:5) WITH CAPTIONS
+# 4. PHOTO RESIZER (8:5)
 with t4:
     st.info("🖼️ Upload photos to crop to **8:5** (1280x800) AND generate AI captions.")
     
-    # ------------------ ADDED ALIGNMENT SELECTOR HERE ------------------
+    # Alignment Controls
     c_align = st.selectbox(
         "🎯 Crop Focus (For 8:5 cropping):",
-        ["Center (Default)", "Top (Good for Portraits/Heads)", "Bottom"]
+        ["Center (Default)", "Top (Good for Portraits)", "Bottom", "Left", "Right", "Custom Manual Focus"]
     )
     
-    # Map selection to coordinate tuples
-    align_map = {
-        "Center (Default)": (0.5, 0.5),
-        "Top (Good for Portraits/Heads)": (0.5, 0.0),
-        "Bottom": (0.5, 1.0)
-    }
-    selected_alignment = align_map[c_align]
-    # -------------------------------------------------------------------
+    if c_align == "Custom Manual Focus":
+        col_x, col_y = st.columns(2)
+        align_x = col_x.slider("Horizontal Focus (0=Left, 100=Right)", 0, 100, 50) / 100.0
+        align_y = col_y.slider("Vertical Focus (0=Top, 100=Bottom)", 0, 100, 50) / 100.0
+        selected_alignment = (align_x, align_y)
+    else:
+        align_map = {
+            "Center (Default)": (0.5, 0.5),
+            "Top (Good for Portraits)": (0.5, 0.0),
+            "Bottom": (0.5, 1.0),
+            "Left": (0.0, 0.5),
+            "Right": (1.0, 0.5)
+        }
+        selected_alignment = align_map[c_align]
 
     uploaded_imgs = st.file_uploader("Upload Images", type=['jpg','jpeg','png'], accept_multiple_files=True)
     
