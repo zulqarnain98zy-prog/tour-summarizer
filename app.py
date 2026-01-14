@@ -73,9 +73,12 @@ def extract_text_from_file(uploaded_file):
     except Exception as e:
         return f"⚠️ Error: {e}"
 
-# --- IMAGE RESIZING LOGIC (8:5) ---
-def resize_image_klook_standard(uploaded_file):
-    """Resizes and crops an image to 8:5 ratio (1280x800 target)."""
+# --- IMAGE RESIZING LOGIC (8:5) WITH ALIGNMENT ---
+def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
+    """
+    Resizes and crops an image to 8:5 ratio (1280x800 target).
+    alignment: tuple (x, y) - (0.5, 0.5) is center, (0.5, 0.0) is top.
+    """
     if Image is None:
         return None, "⚠️ Error: 'Pillow' library missing."
     
@@ -86,8 +89,13 @@ def resize_image_klook_standard(uploaded_file):
         target_width = 1280
         target_height = 800
         
-        # 1. Resize/Crop to Fill 1280x800
-        img_resized = ImageOps.fit(img, (target_width, target_height), method=Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+        # 1. Resize/Crop to Fill 1280x800 with ALIGNMENT control
+        img_resized = ImageOps.fit(
+            img, 
+            (target_width, target_height), 
+            method=Image.Resampling.LANCZOS, 
+            centering=alignment
+        )
         
         # 2. Save to buffer
         buf = io.BytesIO()
@@ -552,6 +560,22 @@ with t3:
 # 4. PHOTO RESIZER (8:5) WITH CAPTIONS
 with t4:
     st.info("🖼️ Upload photos to crop to **8:5** (1280x800) AND generate AI captions.")
+    
+    # ------------------ ADDED ALIGNMENT SELECTOR HERE ------------------
+    c_align = st.selectbox(
+        "🎯 Crop Focus (For 8:5 cropping):",
+        ["Center (Default)", "Top (Good for Portraits/Heads)", "Bottom"]
+    )
+    
+    # Map selection to coordinate tuples
+    align_map = {
+        "Center (Default)": (0.5, 0.5),
+        "Top (Good for Portraits/Heads)": (0.5, 0.0),
+        "Bottom": (0.5, 1.0)
+    }
+    selected_alignment = align_map[c_align]
+    # -------------------------------------------------------------------
+
     uploaded_imgs = st.file_uploader("Upload Images", type=['jpg','jpeg','png'], accept_multiple_files=True)
     
     if uploaded_imgs:
@@ -562,8 +586,8 @@ with t4:
         # Process all images
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
             for img_file in uploaded_imgs:
-                # 1. Resize
-                processed_bytes, error = resize_image_klook_standard(img_file)
+                # 1. Resize (Pass selected alignment)
+                processed_bytes, error = resize_image_klook_standard(img_file, alignment=selected_alignment)
                 
                 if processed_bytes:
                     file_name = f"resized_{img_file.name}"
