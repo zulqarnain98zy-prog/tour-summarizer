@@ -424,9 +424,9 @@ def render_json_results(json_text, url_input=None):
 
 # --- MAIN TABS ---
 t1, t2, t3, t4, t5 = st.tabs([
-    "🧠 Generate Activity Summary (Link)", 
-    "✍🏻 Generate Activity Summary (Fallback)", 
-    "📂 Generate Activity Summary (File/PDF)",
+    "🧠 Summarize Activity (Link)", 
+    "✍🏻 Summarize Activity (Fallback)", 
+    "📂 Summarize Activity (File/PDF)",
     "🖼️ Photo Resizer (8:5)",
     "⚖️ QA Comparison (Testing)"
 ])
@@ -476,7 +476,7 @@ with t3:
                     else: render_json_results(res)
                 else: st.error(txt)
 
-# 4. PHOTO RESIZER (UPDATED 8:5) - MOVED HERE
+# 4. PHOTO RESIZER (8:5)
 with t4:
     st.info("🖼️ Upload photos to automatically crop/resize them to **8:5 ratio (1280x800)**.")
     uploaded_imgs = st.file_uploader("Upload Images", type=['jpg','jpeg','png'], accept_multiple_files=True)
@@ -521,7 +521,7 @@ with t4:
                 )
             st.divider()
 
-# 5. QA COMPARISON - MOVED HERE
+# 5. QA COMPARISON
 with t5:
     st.info("Compare Klook Draft vs Merchant Site")
     c1, c2 = st.columns(2)
