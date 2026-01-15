@@ -188,9 +188,9 @@ def call_gemini_caption(image_bytes, api_key):
 
 # --- UI RENDERER ---
 def render_output(json_text, url_input=None):
-    # FORCE DISPLAY OF RAW TEXT (DEBUGGING)
-    st.info("✅ Raw Response Received from AI:")
-    st.code(json_text) 
+    # --- UI TWEAK: HIDE RAW TEXT IN DROPDOWN ---
+    with st.expander("📝 View Raw AI Response (Debug)", expanded=False):
+        st.code(json_text)
 
     if json_text == "429_LIMIT":
         st.error("⏳ Quota Exceeded. Please wait 1 minute or check API usage.")
@@ -369,8 +369,6 @@ with t2:
         if not keys: st.error("❌ No API Keys"); st.stop()
         if len(raw_text) < 50: st.error("❌ Text too short (min 50 chars)"); st.stop()
         
-        # REMOVED HIDDEN TRY-EXCEPT BLOCKS
-        # This allows you to see the real error if it crashes
         st.info("🚀 Processing Text...")
         result = smart_rotation_wrapper(raw_text, keys)
         render_output(result)
