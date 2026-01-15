@@ -79,37 +79,33 @@ def extract_text_from_url(url):
         text = soup.get_text(separator='\n')
         lines = (line.strip() for line in text.splitlines())
         clean_text = '\n'.join(line for line in lines if line)
-        return clean_text[:30000] # Reduced char count to save tokens
+        return clean_text[:30000]
     except Exception as e:
         return f"ERROR: {str(e)}"
 
-# --- SMART MODEL FINDER (RATE LIMIT FIX) ---
+# --- SMART MODEL FINDER ---
 def get_working_model_name(api_key):
-    """
-    Prioritizes FLASH models because they have higher rate limits.
-    """
     genai.configure(api_key=api_key)
     try:
         models = genai.list_models()
         available_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
         
-        # STRICT PRIORITY: Flash -> Flash-8b -> Pro
-        # Flash has 15 RPM (Requests Per Minute) vs Pro's 2 RPM
+        # Priority: Flash -> Flash-8b -> Pro
         priority_list = [
             "gemini-1.5-flash",
             "gemini-1.5-flash-latest",
             "gemini-1.5-flash-001",
-            "gemini-1.5-pro", # Only fallback to Pro if Flash is missing
+            "gemini-1.5-pro",
         ]
         
         for pref in priority_list:
             for model in available_models:
                 if pref in model:
                     return model
-        
         return available_models[0] if available_models else None
-    except Exception as e:
-        return None
+    except Exception:
+        # Fallback if list_models fails (permissions issue)
+        return "models/gemini-1.5-flash"
 
 # --- GENERATION FUNCTIONS ---
 
@@ -122,17 +118,18 @@ def call_gemini_json_summary(text, api_key):
     
     tag_list = "Interactive, Romantic, Guided, Private, Skip-the-line, Small Group, VIP, Architecture, Cultural, Historical, Museum, Nature, Wildlife, Food, Hiking, Boat, Cruise, Night, Shopping, Sightseeing"
     
-    prompt = f"""
+    # ---------------------------------------------------------
+    # FIX: Use concatenation instead of f-string for user text
+    # to avoid crashing on curly braces {} in the input.
+    # ---------------------------------------------------------
+    intro_prompt = """
     You are a travel product manager.
     **TASK:** Convert the tour text into strict JSON.
     **CRITICAL:** Output ONLY raw JSON. No Markdown.
     
-    **INPUT TEXT:**
-    {text[:25000]}
-    
     **REQUIRED JSON STRUCTURE:**
-    {{
-        "basic_info": {{
+    {
+        "basic_info": {
             "city_country": "City, Country",
             "group_type": "Private/Join-in",
             "group_size": "Min/Max",
@@ -141,28 +138,33 @@ def call_gemini_json_summary(text, api_key):
             "highlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],
             "what_to_expect": "Short summary",
             "selling_points": ["Tag 1", "Tag 2"]
-        }},
-        "start_end": {{
+        },
+        "start_end": {
             "start_time": "09:00",
             "end_time": "17:00",
             "join_method": "Pickup/Meetup",
             "meet_pick_points": ["Location A"],
             "drop_off": "Location B"
-        }},
-        "itinerary": {{ "steps": ["Step 1", "Step 2"] }},
-        "policies": {{ "cancellation": "Free cancel...", "merchant_contact": "Email/Phone" }},
-        "inclusions": {{ "included": ["Item A"], "excluded": ["Item B"] }},
-        "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": "Details" }},
-        "seo": {{ "keywords": ["Key 1", "Key 2"] }},
-        "pricing": {{ "details": "Price info" }},
-        "analysis": {{ "ota_search_term": "Product Name" }}
-    }}
+        },
+        "itinerary": { "steps": ["Step 1", "Step 2"] },
+        "policies": { "cancellation": "Free cancel...", "merchant_contact": "Email/Phone" },
+        "inclusions": { "included": ["Item A"], "excluded": ["Item B"] },
+        "restrictions": { "child_policy": "Details", "accessibility": "Details", "faq": "Details" },
+        "seo": { "keywords": ["Key 1", "Key 2"] },
+        "pricing": { "details": "Price info" },
+        "analysis": { "ota_search_term": "Product Name" }
+    }
+
+    **INPUT TEXT:**
     """
+    
+    final_prompt = intro_prompt + text[:25000]
+    
     try:
-        response = model.generate_content(prompt)
+        response = model.generate_content(final_prompt)
         return response.text
     except ResourceExhausted:
-        return "429_LIMIT" # Signal to retry
+        return "429_LIMIT"
     except Exception as e:
         return f"AI Error: {str(e)}"
 
@@ -177,12 +179,7 @@ def call_gemini_caption(image_bytes, api_key):
         response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
         return response.text
     except ResourceExhausted:
-        time.sleep(5) # Wait if limit hit
-        try:
-            response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
-            return response.text
-        except:
-            return "Caption skipped (Rate Limit)"
+        return "Caption skipped (Rate Limit)"
     except:
         return "Caption failed."
 
@@ -193,12 +190,14 @@ def render_output(json_text):
         return
 
     if not json_text or "Error" in json_text:
-        st.error(json_text)
+        st.error(f"⚠️ {json_text}")
         return
 
     # Try Clean
     clean_text = json_text.strip()
-    if clean_text.startswith("```json"): clean_text = clean_text[7:-3]
+    if clean_text.startswith("```json"): clean_text = clean_text[7:]
+    if clean_text.endswith("```"): clean_text = clean_text[:-3]
+    clean_text = clean_text.strip()
     
     try:
         data = json.loads(clean_text)
@@ -255,15 +254,14 @@ def render_output(json_text):
         st.write(f"Search: {term}")
         if term:
             q = urllib.parse.quote(term)
-            st.link_button("Search Viator", f"[https://www.viator.com/searchResults/all?text=](https://www.viator.com/searchResults/all?text=){q}")
-            st.link_button("Search GYG", f"[https://www.getyourguide.com/s?q=](https://www.getyourguide.com/s?q=){q}")
+            st.link_button("Search Viator", f"https://www.viator.com/searchResults/all?text={q}")
+            st.link_button("Search GYG", f"https://www.getyourguide.com/s?q={q}")
 
 # --- SMART ROTATION (RETRY LOGIC) ---
 def smart_rotation_wrapper(text, keys):
     if not keys: return "⚠️ No API keys found."
     random.shuffle(keys)
     
-    # Try multiple times if we hit a rate limit
     max_retries = 3
     for attempt in range(max_retries):
         for key in keys:
@@ -296,7 +294,7 @@ with t1:
                 st.error(f"Scraper Error: {text}")
                 st.stop()
             
-            status.write(f"✅ Scraped {len(text)} chars.")
+            status.write(f"✅ Scraped {len(text)} characters.")
             status.write("🧠 Calling AI (Auto-Retry Enabled)...")
             
             result = smart_rotation_wrapper(text, keys)
@@ -314,10 +312,17 @@ with t2:
     if st.button("Generate from Text"):
         keys = get_all_keys()
         if not keys: st.error("❌ No API Keys"); st.stop()
+        if len(raw_text) < 50: st.error("❌ Text too short (min 50 chars)"); st.stop()
         
-        with st.spinner("Generating..."):
-            result = smart_rotation_wrapper(raw_text, keys)
-            render_output(result)
+        try:
+            with st.spinner("Generating..."):
+                result = smart_rotation_wrapper(raw_text, keys)
+                if "Busy" in result or "Error" in result:
+                    st.error(result)
+                else:
+                    render_output(result)
+        except Exception as e:
+            st.error(f"Critical System Error: {e}")
 
 # TAB 3: PHOTOS
 with t3:
