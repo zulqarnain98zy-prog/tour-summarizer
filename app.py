@@ -176,18 +176,21 @@ def call_gemini_caption(image_bytes, api_key):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     prompt = "Write a captivating social media caption (10-12 words, experiential verb start, no emojis)."
+    
+    # --- AGGRESSIVE RETRY LOGIC (30s Wait) ---
     try:
         response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
         return response.text
     except ResourceExhausted:
-        time.sleep(10) # Heavy penalty wait if limit hit
+        # If we hit the limit, we wait 20 seconds this time.
+        time.sleep(20) 
         try:
             response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
             return response.text
         except:
-            return "Caption skipped (Rate Limit)"
-    except:
-        return "Caption failed."
+            return "Caption Skipped (Rate Limit Persistent)"
+    except Exception as e:
+        return f"Caption Error: {str(e)}"
 
 # --- UI RENDERER ---
 def render_output(json_text, url_input=None):
@@ -385,15 +388,12 @@ with t3:
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 
-                # --- PROGRESS BAR ---
                 prog_bar = st.progress(0)
                 total_files = len(files)
                 
                 for i, f in enumerate(files):
-                    # Update Progress
                     prog_bar.progress((i + 1) / total_files)
                     
-                    # Resize
                     b_img, err = resize_image_klook_standard(f, align_map[c_align])
                     
                     if b_img:
@@ -401,14 +401,15 @@ with t3:
                         col1, col2 = st.columns([1,3])
                         col1.image(b_img, width=150)
                         
-                        # --- SAFE PACING (The Fix) ---
-                        # If more than 1 file, wait 5 seconds between each to avoid Rate Limit
+                        # --- SAFE PACING ---
+                        # Wait 10s between requests to respect Free Tier Limits
                         if i > 0: 
-                            with col2: st.caption("⏳ Pacing API to avoid rate limit...")
-                            time.sleep(5) 
+                            with col2: st.caption("⏳ Cooling down API (10s)...")
+                            time.sleep(10)
                             
                         caption = "No Key"
                         if keys: caption = call_gemini_caption(b_img, random.choice(keys))
+                        
                         col2.text_area(f"Caption for {f.name}", value=caption, height=70)
             
             st.success("✅ All photos processed!")
