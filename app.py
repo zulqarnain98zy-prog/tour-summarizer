@@ -104,17 +104,14 @@ def get_working_model_name(api_key):
                     return model
         return available_models[0] if available_models else None
     except Exception:
-        return "models/gemini-1.5-flash" # Fallback
+        return "models/gemini-1.5-flash"
 
 # --- TEXT SANITIZER ---
 def sanitize_text(text):
-    """Cleans text to prevent JSON breaking or encoding errors."""
     if not text: return ""
-    # Remove surrogate characters (common in copy-paste)
     text = text.encode('utf-8', 'ignore').decode('utf-8')
-    # Escape backslashes to prevent JSON breaking
     text = text.replace("\\", "\\\\")
-    return text[:25000] # Hard limit to prevent overload
+    return text[:25000]
 
 # --- GENERATION FUNCTIONS ---
 
@@ -123,7 +120,6 @@ def call_gemini_json_summary(text, api_key):
     if not model_name: return "Error: No available Gemini models found."
     
     genai.configure(api_key=api_key)
-    # Important: Set response type to JSON to force structure
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
     tag_list = "Interactive, Romantic, Guided, Private, Skip-the-line, Small Group, VIP, Architecture, Cultural, Historical, Museum, Nature, Wildlife, Food, Hiking, Boat, Cruise, Night, Shopping, Sightseeing"
@@ -158,7 +154,7 @@ def call_gemini_json_summary(text, api_key):
         "restrictions": { "child_policy": "Details", "accessibility": "Details", "faq": "Details" },
         "seo": { "keywords": ["Key 1", "Key 2"] },
         "pricing": { "details": "Price info" },
-        "analysis": { "ota_search_term": "Product Name" }
+        "analysis": { "ota_search_term": "Product Name City" }
     }
 
     **INPUT TEXT:**
@@ -190,8 +186,8 @@ def call_gemini_caption(image_bytes, api_key):
     except:
         return "Caption failed."
 
-# --- UI RENDERER ---
-def render_output(json_text):
+# --- UI RENDERER (FULL FEATURES RESTORED) ---
+def render_output(json_text, url_input=None):
     if json_text == "429_LIMIT":
         st.error("⏳ Quota Exceeded. Please wait 1 minute or check API usage.")
         return
@@ -200,25 +196,26 @@ def render_output(json_text):
         st.error(f"⚠️ {json_text}")
         return
 
-    # Try Clean
     clean_text = json_text.strip()
     if clean_text.startswith("```json"): clean_text = clean_text[7:]
     if clean_text.endswith("```"): clean_text = clean_text[:-3]
     clean_text = clean_text.strip()
     
-    # DEBUG: Show raw text if parsing fails
-    with st.expander("🛠️ Debug: View Raw AI Response"):
-        st.text(clean_text)
-
     try:
         data = json.loads(clean_text)
     except:
-        st.warning("⚠️ Formatting Issue. The AI output wasn't valid JSON. See 'Debug' above for the raw text.")
+        st.warning("⚠️ Formatting Issue. Showing Raw Text:")
+        st.code(json_text)
         return
 
-    # 3. RENDER TABS
-    tabs = st.tabs(["ℹ️ Info", "⏰ Logistics", "🗺️ Itinerary", "📜 Policies", "✅ In/Ex", "🚫 Rules", "🔍 SEO", "💰 Price", "📊 Analysis"])
-    
+    # --- RENDER TABS ---
+    tab_names = [
+        "ℹ️ Basic Info", "⏰ Start & End", "🗺️ Itinerary", 
+        "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", 
+        "💰 Price", "📊 Analysis"
+    ]
+    tabs = st.tabs(tab_names)
+
     with tabs[0]:
         i = data.get("basic_info", {})
         st.write(f"**📍 Location:** {i.get('city_country')}")
@@ -240,9 +237,12 @@ def render_output(json_text):
         for step in steps: st.write(step)
 
     with tabs[3]:
-        st.write(data.get("policies", {}).get("cancellation"))
+        pol = data.get("policies", {})
+        st.error(f"**Cancellation Policy:** {pol.get('cancellation', '-')}")
+        st.write(f"**📞 Merchant Contact:** {pol.get('merchant_contact', '-')}")
 
     with tabs[4]:
+        inc = data.get("inclusions", {})
         c1, c2 = st.columns(2)
         with c1: 
             st.write("✅ **Included**")
@@ -255,17 +255,72 @@ def render_output(json_text):
         r = data.get("restrictions", {})
         st.write(f"**Child:** {r.get('child_policy')}")
         st.write(f"**Accessibility:** {r.get('accessibility')}")
-        with st.expander("FAQ"): st.write(r.get('faq'))
+        with st.expander("View FAQ"): st.write(r.get('faq', 'No FAQ found.'))
 
     with tabs[6]: st.code(str(data.get("seo", {}).get("keywords")))
     with tabs[7]: st.write(data.get("pricing", {}).get("details"))
+    
+    # --- FULL ANALYSIS TAB (RESTORED) ---
     with tabs[8]: 
-        term = data.get("analysis", {}).get("ota_search_term")
-        st.write(f"Search: {term}")
-        if term:
-            q = urllib.parse.quote(term)
-            st.link_button("Search Viator", f"https://www.viator.com/searchResults/all?text={q}")
-            st.link_button("Search GYG", f"https://www.getyourguide.com/s?q={q}")
+        an = data.get("analysis", {})
+        search_term = an.get("ota_search_term", "")
+        st.write(f"**OTA Search Term:** `{search_term}`")
+        
+        if search_term:
+            encoded_term = urllib.parse.quote(search_term)
+            st.markdown("### 🔎 Find Similar Products")
+            
+            # Row 1
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.link_button("🟢 Search on Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
+            with col2:
+                st.link_button("🔵 Search on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
+            with col3:
+                klook_query = f'site:klook.com "{search_term}"'
+                st.link_button("🟠 Search on Klook", f"https://www.google.com/search?q={urllib.parse.quote(klook_query)}")
+                
+            # Row 2
+            col4, col5, col6 = st.columns(3)
+            with col4:
+                st.link_button("🦉 Search on TripAdvisor", f"https://www.tripadvisor.com/Search?q={encoded_term}")
+            with col5:
+                fh_query = f'"{search_term}" FareHarbor'
+                st.link_button("⚓ Find on FareHarbor", f"https://www.google.com/search?q={urllib.parse.quote(fh_query)}")
+            with col6:
+                rezdy_query = f'"{search_term}" Rezdy'
+                st.link_button("📅 Find on Rezdy", f"https://www.google.com/search?q={urllib.parse.quote(rezdy_query)}")
+
+        # --- ANALYZE MERCHANT (Restored) ---
+        if url_input:
+            try:
+                parsed_url = urllib.parse.urlparse(url_input)
+                domain = parsed_url.netloc
+                clean_domain = domain.replace("www.", "")
+                merchant_name = clean_domain.split('.')[0].capitalize()
+                
+                st.markdown("---")
+                st.markdown(f"### 🏢 Analyze Merchant: **{merchant_name}**")
+                
+                m_col1, m_col2 = st.columns(2)
+                with m_col1:
+                    query = f"sites like {clean_domain}"
+                    st.link_button(f"🔎 Find Competitors to {merchant_name}", f"https://www.google.com/search?q={urllib.parse.quote(query)}")
+                with m_col2:
+                    query_reviews = f"{merchant_name} website reviews scam legit"
+                    st.link_button(f"⭐ Check {merchant_name} Reliability", f"https://www.google.com/search?q={urllib.parse.quote(query_reviews)}")
+
+                st.write("")
+                st.caption("Check if they sell on OTAs (via Google Search):")
+                m_col3, m_col4 = st.columns(2)
+                with m_col3:
+                    query_viator = f"{merchant_name} on Viator"
+                    st.link_button(f"🟢 Find {merchant_name} on Viator", f"https://www.google.com/search?q={urllib.parse.quote(query_viator)}")
+                with m_col4:
+                    query_gyg = f"{merchant_name} on Get Your Guide"
+                    st.link_button(f"🔵 Find {merchant_name} on GetYourGuide", f"https://www.google.com/search?q={urllib.parse.quote(query_gyg)}")
+            except Exception:
+                pass
 
 # --- SMART ROTATION (RETRY LOGIC) ---
 def smart_rotation_wrapper(text, keys):
@@ -314,7 +369,7 @@ with t1:
                 st.error(result)
             else:
                 status.update(label="✅ Complete!", state="complete")
-                render_output(result)
+                render_output(result, url_input=url) # Pass URL here
 
 # TAB 2: TEXT
 with t2:
