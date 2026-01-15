@@ -73,12 +73,9 @@ def extract_text_from_file(uploaded_file):
     except Exception as e:
         return f"⚠️ Error: {e}"
 
-# --- IMAGE RESIZING LOGIC (8:5) WITH ALIGNMENT ---
+# --- IMAGE RESIZING LOGIC (8:5) ---
 def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
-    """
-    Resizes and crops an image to 8:5 ratio (1280x800 target).
-    alignment: tuple (x, y) - (0.5, 0.5) is center, (0.5, 0.0) is top.
-    """
+    """Resizes and crops an image to 8:5 ratio (1280x800 target)."""
     if Image is None:
         return None, "⚠️ Error: 'Pillow' library missing."
     
@@ -89,13 +86,8 @@ def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
         target_width = 1280
         target_height = 800
         
-        # 1. Resize/Crop to Fill 1280x800 with ALIGNMENT control
-        img_resized = ImageOps.fit(
-            img, 
-            (target_width, target_height), 
-            method=Image.Resampling.LANCZOS, 
-            centering=alignment
-        )
+        # 1. Resize/Crop to Fill 1280x800
+        img_resized = ImageOps.fit(img, (target_width, target_height), method=Image.Resampling.LANCZOS, centering=alignment)
         
         # 2. Save to buffer
         buf = io.BytesIO()
@@ -146,7 +138,6 @@ def get_valid_model(api_key):
         models = genai.list_models()
         available_names = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
         
-        # Priority list for text generation
         priority = [
             'models/gemini-1.5-flash',
             'models/gemini-1.5-flash-latest',
@@ -169,7 +160,6 @@ def get_vision_model(api_key):
         models = genai.list_models()
         available_names = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
         
-        # Priority list for VISION (Images)
         priority = [
             'models/gemini-1.5-flash',
             'models/gemini-1.5-flash-latest',
@@ -182,7 +172,6 @@ def get_vision_model(api_key):
         for m in priority:
             if m in available_names: return m
             
-        # Fallback to any 1.5 model
         for m in available_names:
             if "1.5" in m: return m
             
@@ -364,9 +353,19 @@ def google_map_link(location):
     query = urllib.parse.quote(location)
     return f"[{location}](https://www.google.com/maps/search/?api=1&query={query})"
 
+def clean_json_string(json_str):
+    """Cleans JSON string from markdown code blocks."""
+    json_str = json_str.strip()
+    if json_str.startswith("```json"):
+        json_str = json_str[7:]
+    if json_str.endswith("```"):
+        json_str = json_str[:-3]
+    return json_str.strip()
+
 def render_json_results(json_text, url_input=None):
     try:
-        data = json.loads(json_text)
+        cleaned_json = clean_json_string(json_text)
+        data = json.loads(cleaned_json)
     except json.JSONDecodeError:
         st.error("⚠️ AI Generation Error: Output was not valid JSON. Please try again.")
         st.text(json_text)
