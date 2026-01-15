@@ -90,7 +90,6 @@ def get_working_model_name(api_key):
         models = genai.list_models()
         available_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
         
-        # Priority: Flash -> Flash-8b -> Pro
         priority_list = [
             "gemini-1.5-flash",
             "gemini-1.5-flash-latest",
@@ -176,19 +175,11 @@ def call_gemini_caption(image_bytes, api_key):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     prompt = "Write a captivating social media caption (10-12 words, experiential verb start, no emojis)."
-    
-    # --- AGGRESSIVE RETRY LOGIC (30s Wait) ---
     try:
         response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
         return response.text
     except ResourceExhausted:
-        # If we hit the limit, we wait 20 seconds this time.
-        time.sleep(20) 
-        try:
-            response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
-            return response.text
-        except:
-            return "Caption Skipped (Rate Limit Persistent)"
+        return "RATE_LIMIT"
     except Exception as e:
         return f"Caption Error: {str(e)}"
 
@@ -376,7 +367,11 @@ with t2:
 
 # TAB 3: PHOTOS
 with t3:
-    st.info("Upload photos to resize to **8:5 (1280x800)** + Generate Captions")
+    st.info("Upload photos to resize to **8:5 (1280x800)**")
+    
+    # --- USER CONTROL: TOGGLE CAPTIONS ---
+    enable_captions = st.checkbox("☑️ Generate AI Captions (Uncheck if Rate Limited)", value=True)
+    
     c_align = st.selectbox("Crop Focus", ["Center", "Top", "Bottom", "Left", "Right"])
     align_map = {"Center":(0.5,0.5), "Top":(0.5,0.0), "Bottom":(0.5,1.0), "Left":(0.0,0.5), "Right":(1.0,0.5)}
     
@@ -401,14 +396,20 @@ with t3:
                         col1, col2 = st.columns([1,3])
                         col1.image(b_img, width=150)
                         
-                        # --- SAFE PACING ---
-                        # Wait 10s between requests to respect Free Tier Limits
-                        if i > 0: 
-                            with col2: st.caption("⏳ Cooling down API (10s)...")
-                            time.sleep(10)
+                        # --- CAPTION LOGIC ---
+                        caption = "AI Disabled"
+                        if enable_captions and keys:
+                            if i > 0: 
+                                with col2: st.caption("⏳ Pacing API (2s)...")
+                                time.sleep(2) # Default gentle pace
                             
-                        caption = "No Key"
-                        if keys: caption = call_gemini_caption(b_img, random.choice(keys))
+                            res = call_gemini_caption(b_img, random.choice(keys))
+                            if res == "RATE_LIMIT":
+                                caption = "⚠️ Limit Hit. Skipped."
+                                with col2: st.warning("⚠️ Quota Exceeded. Captions paused.")
+                                enable_captions = False # Auto-disable for next photos
+                            else:
+                                caption = res
                         
                         col2.text_area(f"Caption for {f.name}", value=caption, height=70)
             
