@@ -104,8 +104,17 @@ def get_working_model_name(api_key):
                     return model
         return available_models[0] if available_models else None
     except Exception:
-        # Fallback if list_models fails (permissions issue)
-        return "models/gemini-1.5-flash"
+        return "models/gemini-1.5-flash" # Fallback
+
+# --- TEXT SANITIZER ---
+def sanitize_text(text):
+    """Cleans text to prevent JSON breaking or encoding errors."""
+    if not text: return ""
+    # Remove surrogate characters (common in copy-paste)
+    text = text.encode('utf-8', 'ignore').decode('utf-8')
+    # Escape backslashes to prevent JSON breaking
+    text = text.replace("\\", "\\\\")
+    return text[:25000] # Hard limit to prevent overload
 
 # --- GENERATION FUNCTIONS ---
 
@@ -114,14 +123,11 @@ def call_gemini_json_summary(text, api_key):
     if not model_name: return "Error: No available Gemini models found."
     
     genai.configure(api_key=api_key)
+    # Important: Set response type to JSON to force structure
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
     tag_list = "Interactive, Romantic, Guided, Private, Skip-the-line, Small Group, VIP, Architecture, Cultural, Historical, Museum, Nature, Wildlife, Food, Hiking, Boat, Cruise, Night, Shopping, Sightseeing"
     
-    # ---------------------------------------------------------
-    # FIX: Use concatenation instead of f-string for user text
-    # to avoid crashing on curly braces {} in the input.
-    # ---------------------------------------------------------
     intro_prompt = """
     You are a travel product manager.
     **TASK:** Convert the tour text into strict JSON.
@@ -158,7 +164,8 @@ def call_gemini_json_summary(text, api_key):
     **INPUT TEXT:**
     """
     
-    final_prompt = intro_prompt + text[:25000]
+    clean_input = sanitize_text(text)
+    final_prompt = intro_prompt + clean_input
     
     try:
         response = model.generate_content(final_prompt)
@@ -199,11 +206,14 @@ def render_output(json_text):
     if clean_text.endswith("```"): clean_text = clean_text[:-3]
     clean_text = clean_text.strip()
     
+    # DEBUG: Show raw text if parsing fails
+    with st.expander("🛠️ Debug: View Raw AI Response"):
+        st.text(clean_text)
+
     try:
         data = json.loads(clean_text)
     except:
-        st.warning("⚠️ Formatting Issue. Showing Raw Text:")
-        st.code(json_text)
+        st.warning("⚠️ Formatting Issue. The AI output wasn't valid JSON. See 'Debug' above for the raw text.")
         return
 
     # 3. RENDER TABS
