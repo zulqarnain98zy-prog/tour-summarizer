@@ -3,12 +3,15 @@ import cloudscraper
 import time
 import random
 import re
+import urllib.parse
 import json
 from bs4 import BeautifulSoup
 import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, NotFound, InvalidArgument
+from datetime import datetime
 import sys
 import io
-import urllib.parse
+import zipfile
 
 # --- TRY IMPORTING IMAGE LIBRARY ---
 try:
@@ -32,7 +35,7 @@ st.markdown(hide_st_style, unsafe_allow_html=True)
 st.title("⭐ Klook Western Magic Tool")
 st.markdown("Use Magic Tool to generate summaries or resize photos in seconds!")
 
-# --- LOAD KEYS ---
+# --- LOAD ALL KEYS ---
 def get_all_keys():
     keys = []
     if "GEMINI_KEYS" in st.secrets:
@@ -40,9 +43,8 @@ def get_all_keys():
     elif "GEMINI_API_KEY" in st.secrets:
         keys = [st.secrets["GEMINI_API_KEY"]]
     
-    # Clean keys (remove empty strings)
-    keys = [k for k in keys if k and len(k) > 10]
-    return keys
+    # Clean keys
+    return [k for k in keys if k and len(k) > 10]
 
 # --- IMAGE RESIZING LOGIC ---
 def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
@@ -52,6 +54,7 @@ def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
         target_width = 1280
         target_height = 800
         img_resized = ImageOps.fit(img, (target_width, target_height), method=Image.Resampling.LANCZOS, centering=alignment)
+        
         buf = io.BytesIO()
         img_format = img.format if img.format else 'JPEG'
         if img_resized.mode == 'RGBA' and img_format == 'JPEG':
@@ -59,7 +62,7 @@ def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
         img_resized.save(buf, format=img_format, quality=90)
         return buf.getvalue(), None
     except Exception as e:
-        return None, f"Error: {e}"
+        return None, f"Error processing image: {e}"
 
 # --- SCRAPER ---
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -76,74 +79,98 @@ def extract_text_from_url(url):
             script.extract()
             
         text = soup.get_text(separator='\n')
-        # Clean up whitespace
         lines = (line.strip() for line in text.splitlines())
         clean_text = '\n'.join(line for line in lines if line)
-        return clean_text[:40000] # Limit char count for API safety
+        return clean_text[:40000]
     except Exception as e:
         return f"ERROR: {str(e)}"
 
-# --- AI HELPERS ---
-def get_valid_model(api_key):
+# --- DYNAMIC MODEL FINDER (THE FIX) ---
+def get_working_model_name(api_key):
+    """
+    Asks Google for a list of available models and picks the best one.
+    """
     genai.configure(api_key=api_key)
-    return 'models/gemini-1.5-flash' # Force Flash for speed/reliability
-
-def get_vision_model(api_key):
-    genai.configure(api_key=api_key)
-    return 'models/gemini-1.5-flash'
-
-def call_gemini_summary(text, api_key):
     try:
-        model_name = get_valid_model(api_key)
-        model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+        models = genai.list_models()
+        available_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
         
-        tag_list = "Interactive, Romantic, Guided, Private, Skip-the-line, Small Group, VIP, Architecture, Cultural, Historical, Museum, Nature, Wildlife, Food, Hiking, Boat, Cruise, Night, Shopping, Sightseeing"
+        # Priority: Flash > Pro > Flash-Latest > Any Gemini
+        preferences = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro", "gemini-pro"]
         
-        prompt = f"""
-        You are a travel product manager.
-        **TASK:** Convert the following tour text into strict JSON.
+        for pref in preferences:
+            for model in available_models:
+                if pref in model:
+                    return model
         
-        **INPUT TEXT:**
-        {text[:30000]}
-        
-        **REQUIRED JSON STRUCTURE:**
-        {{
-            "basic_info": {{
-                "city_country": "City, Country",
-                "group_type": "Private/Join-in",
-                "group_size": "Min/Max",
-                "duration": "Duration",
-                "main_attractions": "Attraction 1, Attraction 2",
-                "highlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],
-                "what_to_expect": "Short summary",
-                "selling_points": ["Tag 1", "Tag 2"]
-            }},
-            "start_end": {{
-                "start_time": "09:00",
-                "end_time": "17:00",
-                "join_method": "Pickup/Meetup",
-                "meet_pick_points": ["Location A"],
-                "drop_off": "Location B"
-            }},
-            "itinerary": {{ "steps": ["Step 1", "Step 2"] }},
-            "policies": {{ "cancellation": "Free cancel...", "merchant_contact": "Email/Phone" }},
-            "inclusions": {{ "included": ["Item A"], "excluded": ["Item B"] }},
-            "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": "Details" }},
-            "seo": {{ "keywords": ["Key 1", "Key 2"] }},
-            "pricing": {{ "details": "Price info" }},
-            "analysis": {{ "ota_search_term": "Product Name" }}
-        }}
-        """
+        # Fallback: Just return the first available model
+        if available_models:
+            return available_models[0]
+            
+        return None
+    except Exception as e:
+        return None
+
+# --- GENERATION FUNCTIONS ---
+
+def call_gemini_json_summary(text, api_key):
+    model_name = get_working_model_name(api_key)
+    if not model_name: return "Error: No available Gemini models found for this API Key."
+    
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+    
+    tag_list = "Interactive, Romantic, Guided, Private, Skip-the-line, Small Group, VIP, Architecture, Cultural, Historical, Museum, Nature, Wildlife, Food, Hiking, Boat, Cruise, Night, Shopping, Sightseeing"
+    
+    prompt = f"""
+    You are a travel product manager.
+    **TASK:** Convert the following tour text into strict JSON.
+    
+    **INPUT TEXT:**
+    {text[:30000]}
+    
+    **REQUIRED JSON STRUCTURE:**
+    {{
+        "basic_info": {{
+            "city_country": "City, Country",
+            "group_type": "Private/Join-in",
+            "group_size": "Min/Max",
+            "duration": "Duration",
+            "main_attractions": "Attraction 1, Attraction 2",
+            "highlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],
+            "what_to_expect": "Short summary",
+            "selling_points": ["Tag 1", "Tag 2"]
+        }},
+        "start_end": {{
+            "start_time": "09:00",
+            "end_time": "17:00",
+            "join_method": "Pickup/Meetup",
+            "meet_pick_points": ["Location A"],
+            "drop_off": "Location B"
+        }},
+        "itinerary": {{ "steps": ["Step 1", "Step 2"] }},
+        "policies": {{ "cancellation": "Free cancel...", "merchant_contact": "Email/Phone" }},
+        "inclusions": {{ "included": ["Item A"], "excluded": ["Item B"] }},
+        "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": "Details" }},
+        "seo": {{ "keywords": ["Key 1", "Key 2"] }},
+        "pricing": {{ "details": "Price info" }},
+        "analysis": {{ "ota_search_term": "Product Name" }}
+    }}
+    """
+    try:
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
         return f"AI Error: {str(e)}"
 
 def call_gemini_caption(image_bytes, api_key):
+    model_name = get_working_model_name(api_key)
+    if not model_name: return "Caption Error: No Model Found"
+    
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name)
+    prompt = "Write a captivating social media caption (10-12 words, experiential verb start, no emojis)."
     try:
-        model_name = get_vision_model(api_key)
-        model = genai.GenerativeModel(model_name)
-        prompt = "Write a captivating social media caption (10-12 words, experiential verb start, no emojis)."
         response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
         return response.text
     except:
@@ -159,6 +186,12 @@ def render_output(json_text):
     try:
         # Clean markdown
         clean_text = json_text.replace("```json", "").replace("```", "").strip()
+        # Find brace boundaries
+        start = clean_text.find('{')
+        end = clean_text.rfind('}')
+        if start != -1 and end != -1:
+            clean_text = clean_text[start:end+1]
+            
         data = json.loads(clean_text)
     except:
         st.warning("⚠️ Could not format data into Tabs. Please use the 'Raw Data' above.")
@@ -223,19 +256,10 @@ with t1:
     url = st.text_input("Paste Tour Link")
     if st.button("Generate from Link"):
         keys = get_all_keys()
-        
-        # 1. Check Keys
-        if not keys:
-            st.error("❌ No API Keys found in Secrets.")
-            st.stop()
-        
-        # 2. Check URL
-        if not url:
-            st.error("❌ Please enter a URL.")
-            st.stop()
+        if not keys: st.error("❌ No API Keys found."); st.stop()
+        if not url: st.error("❌ Please enter a URL."); st.stop()
 
         with st.status("🚀 Processing...", expanded=True) as status:
-            # 3. Scrape
             status.write("🕷️ Scraping URL...")
             text = extract_text_from_url(url)
             
@@ -245,24 +269,19 @@ with t1:
                 st.stop()
             
             status.write(f"✅ Scraped {len(text)} characters.")
-            
-            # 4. Call AI
             status.write("🧠 Calling AI...")
-            try:
-                # Random key rotation
-                key = random.choice(keys)
-                result = call_gemini_summary(text, key)
+            
+            # Simple rotation
+            key = random.choice(keys)
+            result = call_gemini_json_summary(text, key)
+            
+            if "AI Error" in result or "Error" in result:
+                status.update(label="❌ AI Failed", state="error")
+                st.error(result)
+                st.stop()
                 
-                if "AI Error" in result:
-                    status.update(label="❌ AI Failed", state="error")
-                    st.error(result)
-                    st.stop()
-                    
-                status.update(label="✅ Complete!", state="complete")
-                render_output(result)
-                
-            except Exception as e:
-                st.error(f"System Error: {e}")
+            status.update(label="✅ Complete!", state="complete")
+            render_output(result)
 
 # TAB 2: TEXT
 with t2:
@@ -274,7 +293,7 @@ with t2:
         
         with st.spinner("Generating..."):
             key = random.choice(keys)
-            result = call_gemini_summary(raw_text, key)
+            result = call_gemini_json_summary(raw_text, key)
             render_output(result)
 
 # TAB 3: PHOTOS
