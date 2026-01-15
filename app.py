@@ -316,20 +316,51 @@ def call_gemini_vision_caption(image_bytes, api_key):
     except Exception as e:
         return f"Caption Error: {e}"
 
-# --- SMART ROTATION WRAPPERS ---
+# --- HELPER: CLEAN JSON ---
+def clean_json_string(json_str):
+    if not json_str: return ""
+    try:
+        # Regex to find the outer-most braces
+        match = re.search(r'\{.*\}', json_str, re.DOTALL)
+        if match:
+            return match.group(0)
+        return json_str
+    except Exception:
+        return json_str
+
+# --- SMART ROTATION WRAPPERS (SELF-HEALING) ---
 def smart_rotation_wrapper(task_type, keys, *args):
     if not keys: return "⚠️ No API keys found."
     random.shuffle(keys)
-    max_cycles = 2
-    for cycle in range(max_cycles):
+    max_retries = 3 # Try 3 times before failing
+    
+    for attempt in range(max_retries):
         for index, key in enumerate(keys):
             try:
-                if task_type == 'summary': return call_gemini_json_summary(args[0], key)
-                elif task_type == 'qa': return call_qa_comparison(args[0], args[1], key)
-            except (ResourceExhausted, ServiceUnavailable, NotFound, ValueError): continue
-            except Exception as e: return f"AI Error: {e}"
-        if cycle < max_cycles - 1: time.sleep(5)
-    return "⚠️ **All servers busy:** Please wait 1 minute."
+                # 1. Generate Content
+                if task_type == 'summary': 
+                    result_text = call_gemini_json_summary(args[0], key)
+                    
+                    # 2. VALIDATION CHECK (Self-Healing)
+                    # Try to parse it immediately. If it fails, loop continues (retry).
+                    cleaned = clean_json_string(result_text)
+                    json.loads(cleaned) # Will raise ValueError if bad
+                    
+                    return result_text # Return only if valid JSON
+                    
+                elif task_type == 'qa': 
+                    return call_qa_comparison(args[0], args[1], key)
+            
+            except (ResourceExhausted, ServiceUnavailable, NotFound):
+                continue # Server error -> Try next key
+            except (ValueError, json.JSONDecodeError):
+                continue # Bad JSON -> Try next key/attempt
+            except Exception as e:
+                return f"AI Error: {e}"
+        
+        time.sleep(1) # Small pause before next major retry
+        
+    return "⚠️ Failed to generate valid JSON after multiple attempts. Please try again."
 
 def smart_rotation_image_wrapper(keys, image_bytes):
     if not keys: return "⚠️ No Keys"
@@ -346,37 +377,20 @@ def google_map_link(location):
     query = urllib.parse.quote(location)
     return f"[{location}](https://www.google.com/maps/search/?api=1&query={query})"
 
-def clean_json_string(json_str):
-    """
-    Robust cleaning of JSON string.
-    Finds the first '{' and the last '}' to strip everything else.
-    """
-    if not json_str: return ""
-    try:
-        start = json_str.find('{')
-        end = json_str.rfind('}')
-        if start != -1 and end != -1:
-            return json_str[start:end+1]
-        return json_str
-    except Exception:
-        return json_str
-
 def render_json_results(json_text, url_input=None):
-    if not json_text or "AI Error" in json_text:
-        st.error(f"⚠️ Generation Failed: {json_text}")
+    if not json_text or "AI Error" in json_text or "Failed" in json_text:
+        st.error(f"{json_text}")
+        if json_text and "{" in json_text: # Show partial if available
+             st.text("Raw Output:")
+             st.code(json_text)
         return
-
-    # Add DEBUG expander at the bottom (Collapsed by default)
-    with st.expander("🛠️ View Raw AI Data (Debug)", expanded=False):
-        st.code(json_text)
 
     try:
         cleaned_json = clean_json_string(json_text)
         data = json.loads(cleaned_json)
     except json.JSONDecodeError:
-        # FAIL-SAFE: If JSON fails, show raw text instead of blank page
-        st.warning("⚠️ Formatting Warning: The AI returned text that isn't perfect code. Showing raw result below:")
-        st.markdown(json_text) 
+        st.error("⚠️ Formatting Error: The AI output wasn't perfect JSON. Showing raw text below.")
+        st.markdown(json_text)
         return
 
     # --- RENDER TABS ---
