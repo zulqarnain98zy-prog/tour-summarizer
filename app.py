@@ -361,9 +361,6 @@ def render_json_results(json_text, url_input=None):
         st.error(f"⚠️ Generation Failed: {json_text}")
         return
 
-    with st.expander("🛠️ View Raw AI Data (Debug)", expanded=False):
-        st.code(json_text)
-
     try:
         cleaned_json = clean_json_string(json_text)
         data = json.loads(cleaned_json)
