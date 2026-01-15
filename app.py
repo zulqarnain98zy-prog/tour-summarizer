@@ -13,17 +13,7 @@ import sys
 import io
 import zipfile
 
-# --- TRY IMPORTING LIBRARIES ---
-try:
-    from pypdf import PdfReader
-except ImportError:
-    PdfReader = None
-
-try:
-    from docx import Document
-except ImportError:
-    Document = None
-
+# --- TRY IMPORTING IMAGE LIBRARY ---
 try:
     from PIL import Image, ImageOps
 except ImportError:
@@ -43,7 +33,7 @@ hide_st_style = """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
 st.title("⭐ Klook Western Magic Tool")
-st.markdown("Use Magic Tool to generate summaries, analysis, or resize photos in seconds!")
+st.markdown("Use Magic Tool to generate summaries or resize photos in seconds!")
 
 # --- LOAD ALL KEYS ---
 def get_all_keys():
@@ -53,25 +43,6 @@ def get_all_keys():
         return [st.secrets["GEMINI_API_KEY"]]
     else:
         return []
-
-# --- FILE EXTRACTION LOGIC ---
-def extract_text_from_file(uploaded_file):
-    try:
-        file_type = uploaded_file.type
-        if "pdf" in file_type:
-            if PdfReader is None: return "⚠️ Error: 'pypdf' missing."
-            reader = PdfReader(uploaded_file)
-            text = ""
-            for page in reader.pages: text += page.extract_text() + "\n"
-            return text
-        elif "wordprocessingml" in file_type or "docx" in uploaded_file.name:
-            if Document is None: return "⚠️ Error: 'python-docx' missing."
-            doc = Document(uploaded_file)
-            return "\n".join([para.text for para in doc.paragraphs])
-        else:
-            return uploaded_file.getvalue().decode("utf-8")
-    except Exception as e:
-        return f"⚠️ Error: {e}"
 
 # --- IMAGE RESIZING LOGIC (8:5) ---
 def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
@@ -130,8 +101,15 @@ def get_valid_model(api_key):
         genai.configure(api_key=api_key)
         models = genai.list_models()
         available_names = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
-        # Priority list
-        priority = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-1.0-pro']
+        
+        priority = [
+            'models/gemini-1.5-flash',
+            'models/gemini-1.5-flash-latest',
+            'models/gemini-1.5-pro',
+            'models/gemini-1.5-pro-latest',
+            'models/gemini-1.0-pro',
+            'models/gemini-pro'
+        ]
         for m in priority:
             if m in available_names: return m
         return available_names[0] if available_names else None
@@ -144,11 +122,22 @@ def get_vision_model(api_key):
         genai.configure(api_key=api_key)
         models = genai.list_models()
         available_names = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
-        priority = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro-vision']
+        
+        priority = [
+            'models/gemini-1.5-flash',
+            'models/gemini-1.5-flash-latest',
+            'models/gemini-1.5-flash-001',
+            'models/gemini-1.5-pro',
+            'models/gemini-1.5-pro-latest',
+            'models/gemini-pro-vision'
+        ]
+        
         for m in priority:
             if m in available_names: return m
+            
         for m in available_names:
             if "1.5" in m: return m
+            
         return None
     except Exception:
         return None
@@ -157,8 +146,7 @@ def get_vision_model(api_key):
 
 def call_gemini_json_summary(text, api_key):
     model_name = get_valid_model(api_key)
-    if not model_name: return "Error: No valid model found."
-    
+    if not model_name: raise ValueError("No model.")
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
@@ -178,7 +166,8 @@ def call_gemini_json_summary(text, api_key):
     prompt = """
     You are an expert travel product manager. Analyze the tour text.
     **CRITICAL:** Output ONLY raw JSON. Do not use Markdown blocks.
-    
+    **Language:** English.
+
     **SELLING POINT RULES:**
     Select relevant tags ONLY from this list: """ + tag_list + """
 
@@ -242,52 +231,28 @@ def call_gemini_json_summary(text, api_key):
     except Exception as e:
         return f"GenAI Error: {e}"
 
-def call_qa_comparison(klook, merchant, api_key):
-    model_name = get_valid_model(api_key)
-    if not model_name: return "Error: No model found."
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name)
-    prompt = f"""
-    Compare Klook Data vs Merchant Data.
-    **OBJECTIVE:** Determine if Klook is accurate.
-    **SOURCE A (Klook):** {klook}
-    **SOURCE B (Merchant):** {merchant}
-    **OUTPUT:**
-    ### 🛡️ QA VERDICT
-    **Status:** [✅ APPROVED / ❌ REJECT / ⚠️ WARNING]
-    **Reason:** [Short sentence]
-    ### 🔍 Discrepancy Analysis
-    | Feature | Klook | Merchant | Impact |
-    | :--- | :--- | :--- | :--- |
-    | **Price** | | | |
-    | **Start Time** | | | |
-    | **Inclusions** | | | |
-    | **Cancellation**| | | |
-    ### 📝 Missing Info
-    List missing details.
-    ### 💡 Recommendation
-    One sentence advice.
-    """
-    try:
-        return model.generate_content(prompt).text
-    except Exception as e:
-        return f"QA Error: {e}"
-
 def call_gemini_vision_caption(image_bytes, api_key):
     model_name = get_vision_model(api_key)
-    if not model_name: return "Caption Error: No Vision Model Found"
+    if not model_name: return "Caption Error: No Vision Model Found (Check API Key)"
+
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
+    
     image_parts = [{"mime_type": "image/jpeg", "data": image_bytes}]
+    
     prompt = """
     Write a captivating social media caption for this photo.
+    
     **CRITICAL CONSTRAINTS:**
-    1. Start with verbs: Experience, Explore, Discover, Savor, Indulge in, Roam, Enjoy.
-    2. Word Count: 10-12 words.
-    3. No Punctuation. No Emojis.
+    1. **Start with one of these verbs:** Experience, Explore, Discover, Savor, Indulge in, Roam, Enjoy.
+    2. **Word Count:** STRICTLY between 10 and 12 words. Count your words before outputting.
+    3. **No Punctuation:** Do not use full stops, commas, or exclamation marks.
+    4. **No Emojis:** Strictly text only.
     """
+    
     try:
-        return model.generate_content([prompt, image_parts[0]]).text
+        response = model.generate_content([prompt, image_parts[0]])
+        return response.text
     except Exception as e:
         return f"Caption Error: {e}"
 
@@ -295,26 +260,20 @@ def call_gemini_vision_caption(image_bytes, api_key):
 def clean_json_string(json_str):
     if not json_str: return ""
     try:
-        # Regex to find the outer-most braces
         match = re.search(r'\{.*\}', json_str, re.DOTALL)
         if match: return match.group(0)
         return json_str
     except Exception:
         return json_str
 
-# --- SMART ROTATION (SIMPLIFIED) ---
-def smart_rotation_wrapper(task_type, keys, *args):
+# --- SMART ROTATION WRAPPERS ---
+def smart_rotation_wrapper(keys, text):
     if not keys: return "⚠️ No API keys found."
     random.shuffle(keys)
     
-    # Try just one key first to avoid complex looping issues
+    # Try just one key to allow Streamlit to catch errors properly
     key = keys[0]
-    
-    if task_type == 'summary':
-        return call_gemini_json_summary(args[0], key)
-    elif task_type == 'qa':
-        return call_qa_comparison(args[0], args[1], key)
-    return "Unknown Task"
+    return call_gemini_json_summary(text, key)
 
 def smart_rotation_image_wrapper(keys, image_bytes):
     if not keys: return "⚠️ No Keys"
@@ -340,13 +299,12 @@ def render_json_results(json_text, url_input=None):
         st.error(json_text)
         return
 
-    # Try clean
     cleaned_json = clean_json_string(json_text)
     
     try:
         data = json.loads(cleaned_json)
     except json.JSONDecodeError:
-        st.warning("⚠️ Invalid JSON Format. Showing Raw Text:")
+        st.warning("⚠️ Formatting Error: The AI output wasn't perfect JSON. Showing Raw Text:")
         st.code(json_text)
         return
 
@@ -478,12 +436,10 @@ def render_json_results(json_text, url_input=None):
             except Exception: pass
 
 # --- MAIN TABS ---
-t1, t2, t3, t4, t5 = st.tabs([
+t1, t2, t3 = st.tabs([
     "🧠 Summarize Activity (Link)", 
-    "✍🏻 Summarize Activity (Fallback)", 
-    "📂 Summarize Activity (File/PDF)",
-    "🖼️ Photo Resizer (8:5)",
-    "⚖️ QA Comparison (Testing)"
+    "✍🏻 Summarize Activity (Text)", 
+    "🖼️ Photo Resizer (8:5)"
 ])
 
 # 1. LINK SUMMARY
@@ -496,7 +452,7 @@ with t1:
             with st.spinner("Processing..."):
                 txt = extract_text_from_url(url)
                 if txt and "ERROR" not in txt:
-                    res = smart_rotation_wrapper('summary', keys, txt)
+                    res = smart_rotation_wrapper(keys, txt)
                     print(f"✅ LINK SUCCESS | {datetime.now()}")
                     render_json_results(res, url_input=url)
                 else: st.error("Error reading URL")
@@ -509,27 +465,12 @@ with t2:
         if not keys or len(txt_in)<50: st.error("Paste more text")
         else:
             with st.spinner("Processing..."):
-                res = smart_rotation_wrapper('summary', keys, txt_in)
+                res = smart_rotation_wrapper(keys, txt_in)
                 print(f"✅ TEXT SUCCESS | {datetime.now()}")
                 render_json_results(res)
 
-# 3. FILE SUMMARY
+# 3. PHOTO RESIZER (8:5) WITH CAPTIONS
 with t3:
-    up_file = st.file_uploader("Upload PDF/Docx", type=["pdf","docx","txt"])
-    if st.button("Generate", key="btn3"):
-        keys = get_all_keys()
-        if not keys or not up_file: st.error("Check File")
-        else:
-            with st.spinner("Reading..."):
-                txt = extract_text_from_file(up_file)
-                if "Error" not in txt:
-                    res = smart_rotation_wrapper('summary', keys, txt)
-                    print(f"✅ FILE SUCCESS | {datetime.now()}")
-                    render_json_results(res)
-                else: st.error(txt)
-
-# 4. PHOTO RESIZER (8:5) WITH CAPTIONS
-with t4:
     st.info("🖼️ Upload photos to crop to **8:5** (1280x800) AND generate AI captions.")
     
     # Alignment Controls
@@ -603,22 +544,3 @@ with t4:
                 )
                 st.text_area("AI Caption:", value=cap, height=70, key=f"cap_{name}")
             st.divider()
-
-# 5. QA COMPARISON
-with t5:
-    st.info("Compare Klook Draft vs Merchant Site")
-    c1, c2 = st.columns(2)
-    k_txt = c1.text_area("1️⃣ Paste from Klook")
-    m_url = c2.text_input("2️⃣ Merchant URL")
-    if st.button("Compare", key="btn4"):
-        keys = get_all_keys()
-        if not keys or not k_txt or not m_url: st.error("Missing Data")
-        else:
-            with st.spinner("Comparing..."):
-                m_txt = extract_text_from_url(m_url)
-                if m_txt and "ERROR" not in m_txt:
-                    res = smart_rotation_wrapper('qa', keys, k_txt, m_txt)
-                    print(f"✅ QA SUCCESS | {datetime.now()}")
-                    st.success("Done!")
-                    st.markdown("---"); st.markdown(res)
-                else: st.error("Error reading Merchant URL")
