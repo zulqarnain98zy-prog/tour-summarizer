@@ -210,9 +210,6 @@ def call_gemini_json_summary(text, api_key):
     **HIGHLIGHTS RULES:**
     Exactly 4 bullet points. Each bullet must be 10-15 words. No full stops.
 
-    **PHOTO CAPTIONS RULES:**
-    Create 10 engaging photo captions (1 sentence each) that would fit the tour.
-
     Structure the JSON exactly like this:
     {
         "basic_info": {
@@ -235,9 +232,6 @@ def call_gemini_json_summary(text, api_key):
         "itinerary": {
             "steps": ["Stop 1: ...", "Stop 2: ...", "Stop 3: ..."],
             "note": "Mention if transport/food is between stops"
-        },
-        "photo_data": {
-            "captions": ["Caption 1", "Caption 2", "Caption 3", "Caption 4", "Caption 5", "Caption 6", "Caption 7", "Caption 8", "Caption 9", "Caption 10"]
         },
         "policies": {
             "cancellation": "Policy rules",
@@ -352,12 +346,8 @@ def google_map_link(location):
     return f"[{location}](https://www.google.com/maps/search/?api=1&query={query})"
 
 def clean_json_string(json_str):
-    """
-    Robust cleaning of JSON string.
-    Finds the first '{' and the last '}' to strip everything else.
-    """
+    if not json_str: return ""
     try:
-        if not json_str: return ""
         start = json_str.find('{')
         end = json_str.rfind('}')
         if start != -1 and end != -1:
@@ -367,25 +357,24 @@ def clean_json_string(json_str):
         return json_str
 
 def render_json_results(json_text, url_input=None):
-    if not json_text:
-        st.error("⚠️ Error: Received empty response from AI.")
+    if not json_text or "AI Error" in json_text:
+        st.error(f"⚠️ Generation Failed: {json_text}")
         return
 
-    # Add DEBUG expander at the bottom
     with st.expander("🛠️ View Raw AI Data (Debug)", expanded=False):
-        st.code(json_text, language='json')
+        st.code(json_text)
 
     try:
         cleaned_json = clean_json_string(json_text)
         data = json.loads(cleaned_json)
     except json.JSONDecodeError:
-        st.warning("⚠️ Formatting Error: The AI output wasn't perfect JSON, so the tabs might look messy. Here is the raw text:")
+        st.warning("⚠️ Formatting Error: The AI output wasn't perfect JSON. Please retry or see raw text below.")
         st.markdown(json_text)
         return
 
     # --- RENDER TABS ---
     tab_names = [
-        "ℹ️ Basic Info", "⏰ Start & End", "🗺️ Itinerary", "📸 Photos", 
+        "ℹ️ Basic Info", "⏰ Start & End", "🗺️ Itinerary", 
         "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", 
         "💰 Price", "📊 Analysis"
     ]
@@ -433,16 +422,11 @@ def render_json_results(json_text, url_input=None):
         else: st.write(steps)
 
     with tabs[3]:
-        st.warning("⚠️ Note: AI cannot crop/resize real photos. Please match these captions to your 4:3 images.")
-        captions = data.get("photo_data", {}).get("captions", [])
-        for i, cap in enumerate(captions, 1): st.write(f"**{i}.** {cap}")
-
-    with tabs[4]:
         pol = data.get("policies", {})
         st.error(f"**Cancellation Policy:** {pol.get('cancellation', '-')}")
         st.write(f"**📞 Merchant Contact:** {pol.get('merchant_contact', '-')}")
 
-    with tabs[5]:
+    with tabs[4]:
         inc = data.get("inclusions", {})
         c1, c2 = st.columns(2)
         with c1:
@@ -452,22 +436,22 @@ def render_json_results(json_text, url_input=None):
             st.write("❌ **Not Included:**")
             for x in inc.get("excluded", []): st.write(f"- {x}")
 
-    with tabs[6]:
+    with tabs[5]:
         res = data.get("restrictions", {})
         st.write(f"**👶 Child Policy:** {res.get('child_policy', '-')}")
         st.write(f"**♿ Accessibility:** {res.get('accessibility', '-')}")
         st.write(f"**📝 Additional Info:** {res.get('additional_info', '-')}")
         with st.expander("View FAQ"): st.write(res.get('faq', 'No FAQ found.'))
 
-    with tabs[7]:
+    with tabs[6]:
         seo = data.get("seo", {}).get("keywords", [])
         st.write("**🔑 Keywords:**")
         st.code(", ".join(seo))
 
-    with tabs[8]:
+    with tabs[7]:
         st.write(data.get("pricing", {}).get("details", '-'))
 
-    with tabs[9]:
+    with tabs[8]:
         an = data.get("analysis", {})
         search_term = an.get("ota_search_term", "")
         st.write(f"**OTA Search Term:** `{search_term}`")
