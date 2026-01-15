@@ -81,24 +81,17 @@ def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
     
     try:
         img = Image.open(uploaded_file)
-        
-        # Define target size (8:5 ratio)
         target_width = 1280
         target_height = 800
-        
-        # 1. Resize/Crop to Fill 1280x800
         img_resized = ImageOps.fit(img, (target_width, target_height), method=Image.Resampling.LANCZOS, centering=alignment)
         
-        # 2. Save to buffer
         buf = io.BytesIO()
         img_format = img.format if img.format else 'JPEG'
-        # Convert RGBA to RGB if saving as JPEG
         if img_resized.mode == 'RGBA' and img_format == 'JPEG':
             img_resized = img_resized.convert('RGB')
             
         img_resized.save(buf, format=img_format, quality=90)
         byte_im = buf.getvalue()
-        
         return byte_im, None
     except Exception as e:
         return None, f"Error processing image: {e}"
@@ -137,15 +130,8 @@ def get_valid_model(api_key):
         genai.configure(api_key=api_key)
         models = genai.list_models()
         available_names = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
-        
-        priority = [
-            'models/gemini-1.5-flash',
-            'models/gemini-1.5-flash-latest',
-            'models/gemini-1.5-pro',
-            'models/gemini-1.5-pro-latest',
-            'models/gemini-1.0-pro',
-            'models/gemini-pro'
-        ]
+        # Priority list
+        priority = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-1.0-pro']
         for m in priority:
             if m in available_names: return m
         return available_names[0] if available_names else None
@@ -158,22 +144,11 @@ def get_vision_model(api_key):
         genai.configure(api_key=api_key)
         models = genai.list_models()
         available_names = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
-        
-        priority = [
-            'models/gemini-1.5-flash',
-            'models/gemini-1.5-flash-latest',
-            'models/gemini-1.5-flash-001',
-            'models/gemini-1.5-pro',
-            'models/gemini-1.5-pro-latest',
-            'models/gemini-pro-vision'
-        ]
-        
+        priority = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro-vision']
         for m in priority:
             if m in available_names: return m
-            
         for m in available_names:
             if "1.5" in m: return m
-            
         return None
     except Exception:
         return None
@@ -182,9 +157,9 @@ def get_vision_model(api_key):
 
 def call_gemini_json_summary(text, api_key):
     model_name = get_valid_model(api_key)
-    if not model_name: raise ValueError("No model.")
+    if not model_name: return "Error: No valid model found."
+    
     genai.configure(api_key=api_key)
-    # Using 'application/json' forces the model to be strict
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
     tag_list = """
@@ -202,9 +177,8 @@ def call_gemini_json_summary(text, api_key):
     
     prompt = """
     You are an expert travel product manager. Analyze the tour text.
-    **CRITICAL:** Output ONLY raw JSON. Do not use Markdown blocks (```json).
-    **Language:** English.
-
+    **CRITICAL:** Output ONLY raw JSON. Do not use Markdown blocks.
+    
     **SELLING POINT RULES:**
     Select relevant tags ONLY from this list: """ + tag_list + """
 
@@ -261,11 +235,16 @@ def call_gemini_json_summary(text, api_key):
 
     Tour Text:
     """ + text
-    return model.generate_content(prompt).text
+    
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"GenAI Error: {e}"
 
 def call_qa_comparison(klook, merchant, api_key):
     model_name = get_valid_model(api_key)
-    if not model_name: raise ValueError("No model.")
+    if not model_name: return "Error: No model found."
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     prompt = f"""
@@ -289,30 +268,26 @@ def call_qa_comparison(klook, merchant, api_key):
     ### 💡 Recommendation
     One sentence advice.
     """
-    return model.generate_content(prompt).text
+    try:
+        return model.generate_content(prompt).text
+    except Exception as e:
+        return f"QA Error: {e}"
 
 def call_gemini_vision_caption(image_bytes, api_key):
     model_name = get_vision_model(api_key)
-    if not model_name: return "Caption Error: No Vision Model Found (Check API Key)"
-
+    if not model_name: return "Caption Error: No Vision Model Found"
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
-    
     image_parts = [{"mime_type": "image/jpeg", "data": image_bytes}]
-    
     prompt = """
     Write a captivating social media caption for this photo.
-    
     **CRITICAL CONSTRAINTS:**
-    1. **Start with one of these verbs:** Experience, Explore, Discover, Savor, Indulge in, Roam, Enjoy.
-    2. **Word Count:** STRICTLY between 10 and 12 words. Count your words before outputting.
-    3. **No Punctuation:** Do not use full stops, commas, or exclamation marks.
-    4. **No Emojis:** Strictly text only.
+    1. Start with verbs: Experience, Explore, Discover, Savor, Indulge in, Roam, Enjoy.
+    2. Word Count: 10-12 words.
+    3. No Punctuation. No Emojis.
     """
-    
     try:
-        response = model.generate_content([prompt, image_parts[0]])
-        return response.text
+        return model.generate_content([prompt, image_parts[0]]).text
     except Exception as e:
         return f"Caption Error: {e}"
 
@@ -322,45 +297,24 @@ def clean_json_string(json_str):
     try:
         # Regex to find the outer-most braces
         match = re.search(r'\{.*\}', json_str, re.DOTALL)
-        if match:
-            return match.group(0)
+        if match: return match.group(0)
         return json_str
     except Exception:
         return json_str
 
-# --- SMART ROTATION WRAPPERS (SELF-HEALING) ---
+# --- SMART ROTATION (SIMPLIFIED) ---
 def smart_rotation_wrapper(task_type, keys, *args):
     if not keys: return "⚠️ No API keys found."
     random.shuffle(keys)
-    max_retries = 3 # Try 3 times before failing
     
-    for attempt in range(max_retries):
-        for index, key in enumerate(keys):
-            try:
-                # 1. Generate Content
-                if task_type == 'summary': 
-                    result_text = call_gemini_json_summary(args[0], key)
-                    
-                    # 2. VALIDATION CHECK (Self-Healing)
-                    # Try to parse it immediately. If it fails, loop continues (retry).
-                    cleaned = clean_json_string(result_text)
-                    json.loads(cleaned) # Will raise ValueError if bad
-                    
-                    return result_text # Return only if valid JSON
-                    
-                elif task_type == 'qa': 
-                    return call_qa_comparison(args[0], args[1], key)
-            
-            except (ResourceExhausted, ServiceUnavailable, NotFound):
-                continue # Server error -> Try next key
-            except (ValueError, json.JSONDecodeError):
-                continue # Bad JSON -> Try next key/attempt
-            except Exception as e:
-                return f"AI Error: {e}"
-        
-        time.sleep(1) # Small pause before next major retry
-        
-    return "⚠️ Failed to generate valid JSON after multiple attempts. Please try again."
+    # Try just one key first to avoid complex looping issues
+    key = keys[0]
+    
+    if task_type == 'summary':
+        return call_gemini_json_summary(args[0], key)
+    elif task_type == 'qa':
+        return call_qa_comparison(args[0], args[1], key)
+    return "Unknown Task"
 
 def smart_rotation_image_wrapper(keys, image_bytes):
     if not keys: return "⚠️ No Keys"
@@ -378,19 +332,22 @@ def google_map_link(location):
     return f"[{location}](https://www.google.com/maps/search/?api=1&query={query})"
 
 def render_json_results(json_text, url_input=None):
-    if not json_text or "AI Error" in json_text or "Failed" in json_text:
-        st.error(f"{json_text}")
-        if json_text and "{" in json_text: # Show partial if available
-             st.text("Raw Output:")
-             st.code(json_text)
+    if not json_text:
+        st.error("⚠️ Empty Response from AI.")
+        return
+        
+    if "Error" in json_text:
+        st.error(json_text)
         return
 
+    # Try clean
+    cleaned_json = clean_json_string(json_text)
+    
     try:
-        cleaned_json = clean_json_string(json_text)
         data = json.loads(cleaned_json)
     except json.JSONDecodeError:
-        st.error("⚠️ Formatting Error: The AI output wasn't perfect JSON. Showing raw text below.")
-        st.markdown(json_text)
+        st.warning("⚠️ Invalid JSON Format. Showing Raw Text:")
+        st.code(json_text)
         return
 
     # --- RENDER TABS ---
@@ -480,19 +437,19 @@ def render_json_results(json_text, url_input=None):
             encoded_term = urllib.parse.quote(search_term)
             st.markdown("### 🔎 Find Similar Products")
             col1, col2, col3 = st.columns(3)
-            with col1: st.link_button("🟢 Search on Viator", f"[https://www.viator.com/searchResults/all?text=](https://www.viator.com/searchResults/all?text=){encoded_term}")
-            with col2: st.link_button("🔵 Search on GetYourGuide", f"[https://www.getyourguide.com/s?q=](https://www.getyourguide.com/s?q=){encoded_term}")
+            with col1: st.link_button("🟢 Search on Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
+            with col2: st.link_button("🔵 Search on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
             with col3: 
                 klook_query = f'site:klook.com "{search_term}"'
-                st.link_button("🟠 Search on Klook", f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(klook_query)}")
+                st.link_button("🟠 Search on Klook", f"https://www.google.com/search?q={urllib.parse.quote(klook_query)}")
             col4, col5, col6 = st.columns(3)
-            with col4: st.link_button("🦉 Search on TripAdvisor", f"[https://www.tripadvisor.com/Search?q=](https://www.tripadvisor.com/Search?q=){encoded_term}")
+            with col4: st.link_button("🦉 Search on TripAdvisor", f"https://www.tripadvisor.com/Search?q={encoded_term}")
             with col5: 
                 fh_query = f'"{search_term}" FareHarbor'
-                st.link_button("⚓ Find on FareHarbor", f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(fh_query)}")
+                st.link_button("⚓ Find on FareHarbor", f"https://www.google.com/search?q={urllib.parse.quote(fh_query)}")
             with col6: 
                 rezdy_query = f'"{search_term}" Rezdy'
-                st.link_button("📅 Find on Rezdy", f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(rezdy_query)}")
+                st.link_button("📅 Find on Rezdy", f"https://www.google.com/search?q={urllib.parse.quote(rezdy_query)}")
 
         if url_input:
             try:
@@ -505,19 +462,19 @@ def render_json_results(json_text, url_input=None):
                 m_col1, m_col2 = st.columns(2)
                 with m_col1:
                     query = f"sites like {clean_domain}"
-                    st.link_button(f"🔎 Find Competitors to {merchant_name}", f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(query)}")
+                    st.link_button(f"🔎 Find Competitors to {merchant_name}", f"https://www.google.com/search?q={urllib.parse.quote(query)}")
                 with m_col2:
                     query_reviews = f"{merchant_name} website reviews scam legit"
-                    st.link_button(f"⭐ Check {merchant_name} Reliability", f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(query_reviews)}")
+                    st.link_button(f"⭐ Check {merchant_name} Reliability", f"https://www.google.com/search?q={urllib.parse.quote(query_reviews)}")
                 st.write("")
                 st.caption("Check if they sell on OTAs (via Google Search):")
                 m_col3, m_col4 = st.columns(2)
                 with m_col3:
                     query_viator = f"{merchant_name} on Viator"
-                    st.link_button(f"🟢 Find {merchant_name} on Viator", f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(query_viator)}")
+                    st.link_button(f"🟢 Find {merchant_name} on Viator", f"https://www.google.com/search?q={urllib.parse.quote(query_viator)}")
                 with m_col4:
                     query_gyg = f"{merchant_name} on Get Your Guide"
-                    st.link_button(f"🔵 Find {merchant_name} on GetYourGuide", f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(query_gyg)}")
+                    st.link_button(f"🔵 Find {merchant_name} on GetYourGuide", f"https://www.google.com/search?q={urllib.parse.quote(query_gyg)}")
             except Exception: pass
 
 # --- MAIN TABS ---
