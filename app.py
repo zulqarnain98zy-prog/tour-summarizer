@@ -90,18 +90,10 @@ def get_working_model_name(api_key):
         models = genai.list_models()
         available_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
         
-        # Priority: Flash -> Flash-8b -> Pro
-        priority_list = [
-            "gemini-1.5-flash",
-            "gemini-1.5-flash-latest",
-            "gemini-1.5-flash-001",
-            "gemini-1.5-pro",
-        ]
-        
+        priority_list = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro"]
         for pref in priority_list:
             for model in available_models:
-                if pref in model:
-                    return model
+                if pref in model: return model
         return available_models[0] if available_models else None
     except Exception:
         return "models/gemini-1.5-flash"
@@ -121,8 +113,6 @@ def call_gemini_json_summary(text, api_key):
     
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
-    
-    tag_list = "Interactive, Romantic, Guided, Private, Skip-the-line, Small Group, VIP, Architecture, Cultural, Historical, Museum, Nature, Wildlife, Food, Hiking, Boat, Cruise, Night, Shopping, Sightseeing"
     
     intro_prompt = """
     You are a travel product manager.
@@ -178,17 +168,23 @@ def call_gemini_caption(image_bytes, api_key):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     prompt = "Write a captivating social media caption (10-12 words, experiential verb start, no emojis)."
+    
+    # RETRY LOGIC FOR PHOTOS
     try:
         response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
         return response.text
     except ResourceExhausted:
-        return "Caption skipped (Rate Limit)"
-    except:
-        return "Caption failed."
+        time.sleep(5) # Wait 5s if limit hit
+        try:
+            response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
+            return response.text
+        except:
+            return "Caption skipped (Rate Limit - Try again later)"
+    except Exception as e:
+        return f"Caption Error: {str(e)}"
 
 # --- UI RENDERER ---
 def render_output(json_text, url_input=None):
-    # --- UI TWEAK: HIDE RAW TEXT IN DROPDOWN ---
     with st.expander("📝 View Raw AI Response (Debug)", expanded=False):
         st.code(json_text)
 
@@ -212,11 +208,7 @@ def render_output(json_text, url_input=None):
         return
 
     # --- RENDER TABS ---
-    tab_names = [
-        "ℹ️ Basic Info", "⏰ Start & End", "🗺️ Itinerary", 
-        "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", 
-        "💰 Price", "📊 Analysis"
-    ]
+    tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis"]
     tabs = st.tabs(tab_names)
 
     with tabs[0]:
@@ -322,11 +314,10 @@ def smart_rotation_wrapper(text, keys):
         for key in keys:
             result = call_gemini_json_summary(text, key)
             if result == "429_LIMIT":
-                time.sleep(2) # Pause briefly before trying next key
+                time.sleep(2) 
                 continue
             if "Error" not in result:
-                return result # Success!
-    
+                return result
     return "⚠️ Server Busy (429). Please wait 30 seconds and try again."
 
 # --- MAIN APP LOGIC ---
@@ -386,15 +377,31 @@ with t3:
         if st.button("Process Images"):
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                for f in files:
+                
+                # --- PROGRESS BAR ---
+                prog_bar = st.progress(0)
+                total_files = len(files)
+                
+                for i, f in enumerate(files):
+                    # 1. Update Progress
+                    prog_bar.progress((i + 1) / total_files)
+                    
+                    # 2. Resize
                     b_img, err = resize_image_klook_standard(f, align_map[c_align])
+                    
                     if b_img:
                         zf.writestr(f"resized_{f.name}", b_img)
                         col1, col2 = st.columns([1,3])
                         col1.image(b_img, width=150)
                         
+                        # 3. Caption with PACING (Delay)
                         caption = "No Key"
-                        if keys: caption = call_gemini_caption(b_img, random.choice(keys))
+                        if keys:
+                            # Only delay if not the first image to prevent initial lag
+                            if i > 0: time.sleep(2) 
+                            caption = call_gemini_caption(b_img, random.choice(keys))
+                            
                         col2.text_area(f"Caption for {f.name}", value=caption, height=70)
             
+            st.success("✅ All photos processed!")
             st.download_button("⬇️ Download All ZIP", zip_buf.getvalue(), "images.zip", "application/zip")
