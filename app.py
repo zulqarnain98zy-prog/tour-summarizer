@@ -37,14 +37,12 @@ st.markdown("Use Magic Tool to generate summaries or resize photos in seconds!")
 
 # --- LOAD ALL KEYS ---
 def get_all_keys():
-    keys = []
     if "GEMINI_KEYS" in st.secrets:
-        keys = st.secrets["GEMINI_KEYS"]
+        return st.secrets["GEMINI_KEYS"]
     elif "GEMINI_API_KEY" in st.secrets:
-        keys = [st.secrets["GEMINI_API_KEY"]]
-    
-    # Clean keys
-    return [k for k in keys if k and len(k) > 10]
+        return [st.secrets["GEMINI_API_KEY"]]
+    else:
+        return []
 
 # --- IMAGE RESIZING LOGIC ---
 def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
@@ -81,33 +79,35 @@ def extract_text_from_url(url):
         text = soup.get_text(separator='\n')
         lines = (line.strip() for line in text.splitlines())
         clean_text = '\n'.join(line for line in lines if line)
-        return clean_text[:40000]
+        return clean_text[:30000] # Reduced char count to save tokens
     except Exception as e:
         return f"ERROR: {str(e)}"
 
-# --- DYNAMIC MODEL FINDER (THE FIX) ---
+# --- SMART MODEL FINDER (RATE LIMIT FIX) ---
 def get_working_model_name(api_key):
     """
-    Asks Google for a list of available models and picks the best one.
+    Prioritizes FLASH models because they have higher rate limits.
     """
     genai.configure(api_key=api_key)
     try:
         models = genai.list_models()
         available_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
         
-        # Priority: Flash > Pro > Flash-Latest > Any Gemini
-        preferences = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro", "gemini-pro"]
+        # STRICT PRIORITY: Flash -> Flash-8b -> Pro
+        # Flash has 15 RPM (Requests Per Minute) vs Pro's 2 RPM
+        priority_list = [
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-latest",
+            "gemini-1.5-flash-001",
+            "gemini-1.5-pro", # Only fallback to Pro if Flash is missing
+        ]
         
-        for pref in preferences:
+        for pref in priority_list:
             for model in available_models:
                 if pref in model:
                     return model
         
-        # Fallback: Just return the first available model
-        if available_models:
-            return available_models[0]
-            
-        return None
+        return available_models[0] if available_models else None
     except Exception as e:
         return None
 
@@ -115,7 +115,7 @@ def get_working_model_name(api_key):
 
 def call_gemini_json_summary(text, api_key):
     model_name = get_working_model_name(api_key)
-    if not model_name: return "Error: No available Gemini models found for this API Key."
+    if not model_name: return "Error: No available Gemini models found."
     
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
@@ -124,10 +124,11 @@ def call_gemini_json_summary(text, api_key):
     
     prompt = f"""
     You are a travel product manager.
-    **TASK:** Convert the following tour text into strict JSON.
+    **TASK:** Convert the tour text into strict JSON.
+    **CRITICAL:** Output ONLY raw JSON. No Markdown.
     
     **INPUT TEXT:**
-    {text[:30000]}
+    {text[:25000]}
     
     **REQUIRED JSON STRUCTURE:**
     {{
@@ -160,12 +161,14 @@ def call_gemini_json_summary(text, api_key):
     try:
         response = model.generate_content(prompt)
         return response.text
+    except ResourceExhausted:
+        return "429_LIMIT" # Signal to retry
     except Exception as e:
         return f"AI Error: {str(e)}"
 
 def call_gemini_caption(image_bytes, api_key):
     model_name = get_working_model_name(api_key)
-    if not model_name: return "Caption Error: No Model Found"
+    if not model_name: return "Error: No Model"
     
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
@@ -173,28 +176,35 @@ def call_gemini_caption(image_bytes, api_key):
     try:
         response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
         return response.text
+    except ResourceExhausted:
+        time.sleep(5) # Wait if limit hit
+        try:
+            response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
+            return response.text
+        except:
+            return "Caption skipped (Rate Limit)"
     except:
         return "Caption failed."
 
 # --- UI RENDERER ---
 def render_output(json_text):
-    # 1. SHOW RAW DATA (Diagnostic)
-    with st.expander("👀 View Raw Data (Click if Tabs are empty)", expanded=False):
-        st.code(json_text)
+    if json_text == "429_LIMIT":
+        st.error("⏳ Quota Exceeded. Please wait 1 minute or check API usage.")
+        return
 
-    # 2. PARSE JSON
+    if not json_text or "Error" in json_text:
+        st.error(json_text)
+        return
+
+    # Try Clean
+    clean_text = json_text.strip()
+    if clean_text.startswith("```json"): clean_text = clean_text[7:-3]
+    
     try:
-        # Clean markdown
-        clean_text = json_text.replace("```json", "").replace("```", "").strip()
-        # Find brace boundaries
-        start = clean_text.find('{')
-        end = clean_text.rfind('}')
-        if start != -1 and end != -1:
-            clean_text = clean_text[start:end+1]
-            
         data = json.loads(clean_text)
     except:
-        st.warning("⚠️ Could not format data into Tabs. Please use the 'Raw Data' above.")
+        st.warning("⚠️ Formatting Issue. Showing Raw Text:")
+        st.code(json_text)
         return
 
     # 3. RENDER TABS
@@ -245,8 +255,26 @@ def render_output(json_text):
         st.write(f"Search: {term}")
         if term:
             q = urllib.parse.quote(term)
-            st.link_button("Search Viator", f"https://www.viator.com/searchResults/all?text={q}")
-            st.link_button("Search GYG", f"https://www.getyourguide.com/s?q={q}")
+            st.link_button("Search Viator", f"[https://www.viator.com/searchResults/all?text=](https://www.viator.com/searchResults/all?text=){q}")
+            st.link_button("Search GYG", f"[https://www.getyourguide.com/s?q=](https://www.getyourguide.com/s?q=){q}")
+
+# --- SMART ROTATION (RETRY LOGIC) ---
+def smart_rotation_wrapper(text, keys):
+    if not keys: return "⚠️ No API keys found."
+    random.shuffle(keys)
+    
+    # Try multiple times if we hit a rate limit
+    max_retries = 3
+    for attempt in range(max_retries):
+        for key in keys:
+            result = call_gemini_json_summary(text, key)
+            if result == "429_LIMIT":
+                time.sleep(2) # Pause briefly before trying next key
+                continue
+            if "Error" not in result:
+                return result # Success!
+    
+    return "⚠️ Server Busy (429). Please wait 30 seconds and try again."
 
 # --- MAIN APP LOGIC ---
 t1, t2, t3 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "🖼️ Photo Resizer"])
@@ -265,23 +293,20 @@ with t1:
             
             if not text or "ERROR" in text:
                 status.update(label="❌ Scraping Failed", state="error")
-                st.error(f"Could not read website. It might be blocked.\nDetails: {text}")
+                st.error(f"Scraper Error: {text}")
                 st.stop()
             
-            status.write(f"✅ Scraped {len(text)} characters.")
-            status.write("🧠 Calling AI...")
+            status.write(f"✅ Scraped {len(text)} chars.")
+            status.write("🧠 Calling AI (Auto-Retry Enabled)...")
             
-            # Simple rotation
-            key = random.choice(keys)
-            result = call_gemini_json_summary(text, key)
+            result = smart_rotation_wrapper(text, keys)
             
-            if "AI Error" in result or "Error" in result:
+            if "Busy" in result or "Error" in result:
                 status.update(label="❌ AI Failed", state="error")
                 st.error(result)
-                st.stop()
-                
-            status.update(label="✅ Complete!", state="complete")
-            render_output(result)
+            else:
+                status.update(label="✅ Complete!", state="complete")
+                render_output(result)
 
 # TAB 2: TEXT
 with t2:
@@ -289,11 +314,9 @@ with t2:
     if st.button("Generate from Text"):
         keys = get_all_keys()
         if not keys: st.error("❌ No API Keys"); st.stop()
-        if len(raw_text) < 50: st.error("❌ Text too short"); st.stop()
         
         with st.spinner("Generating..."):
-            key = random.choice(keys)
-            result = call_gemini_json_summary(raw_text, key)
+            result = smart_rotation_wrapper(raw_text, keys)
             render_output(result)
 
 # TAB 3: PHOTOS
