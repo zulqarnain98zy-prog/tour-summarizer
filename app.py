@@ -353,27 +353,37 @@ def google_map_link(location):
 
 def clean_json_string(json_str):
     """
-    Cleanly extracts JSON object from string using Regex.
-    Catches '{...}' even if surrounded by text.
+    Robust cleaning of JSON string.
+    Finds the first '{' and the last '}' to strip everything else.
     """
     try:
-        # Find first '{' and last '}'
-        match = re.search(r'\{.*\}', json_str, re.DOTALL)
-        if match:
-            return match.group(0)
+        if not json_str: return ""
+        start = json_str.find('{')
+        end = json_str.rfind('}')
+        if start != -1 and end != -1:
+            return json_str[start:end+1]
         return json_str
     except Exception:
         return json_str
 
 def render_json_results(json_text, url_input=None):
+    if not json_text:
+        st.error("⚠️ Error: Received empty response from AI.")
+        return
+
+    # Add DEBUG expander at the bottom
+    with st.expander("🛠️ View Raw AI Data (Debug)", expanded=False):
+        st.code(json_text, language='json')
+
     try:
         cleaned_json = clean_json_string(json_text)
         data = json.loads(cleaned_json)
     except json.JSONDecodeError:
-        st.error("⚠️ AI Error: Could not parse JSON. Showing Raw Text below:")
-        st.code(json_text) # Fallback: Show raw text so user isn't blank
+        st.warning("⚠️ Formatting Error: The AI output wasn't perfect JSON, so the tabs might look messy. Here is the raw text:")
+        st.markdown(json_text)
         return
 
+    # --- RENDER TABS ---
     tab_names = [
         "ℹ️ Basic Info", "⏰ Start & End", "🗺️ Itinerary", "📸 Photos", 
         "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", 
@@ -559,7 +569,7 @@ with t3:
                     else: render_json_results(res)
                 else: st.error(txt)
 
-# 4. PHOTO RESIZER (8:5)
+# 4. PHOTO RESIZER (8:5) WITH CAPTIONS
 with t4:
     st.info("🖼️ Upload photos to crop to **8:5** (1280x800) AND generate AI captions.")
     
