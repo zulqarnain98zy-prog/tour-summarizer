@@ -184,6 +184,7 @@ def call_gemini_json_summary(text, api_key):
     model_name = get_valid_model(api_key)
     if not model_name: raise ValueError("No model.")
     genai.configure(api_key=api_key)
+    # Using 'application/json' forces the model to be strict
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
     tag_list = """
@@ -201,7 +202,7 @@ def call_gemini_json_summary(text, api_key):
     
     prompt = """
     You are an expert travel product manager. Analyze the tour text.
-    **CRITICAL:** Output ONLY valid JSON. No Markdown. No code blocks.
+    **CRITICAL:** Output ONLY raw JSON. Do not use Markdown blocks (```json).
     **Language:** English.
 
     **SELLING POINT RULES:**
@@ -346,6 +347,10 @@ def google_map_link(location):
     return f"[{location}](https://www.google.com/maps/search/?api=1&query={query})"
 
 def clean_json_string(json_str):
+    """
+    Robust cleaning of JSON string.
+    Finds the first '{' and the last '}' to strip everything else.
+    """
     if not json_str: return ""
     try:
         start = json_str.find('{')
@@ -361,12 +366,17 @@ def render_json_results(json_text, url_input=None):
         st.error(f"⚠️ Generation Failed: {json_text}")
         return
 
+    # Add DEBUG expander at the bottom (Collapsed by default)
+    with st.expander("🛠️ View Raw AI Data (Debug)", expanded=False):
+        st.code(json_text)
+
     try:
         cleaned_json = clean_json_string(json_text)
         data = json.loads(cleaned_json)
     except json.JSONDecodeError:
-        st.warning("⚠️ Formatting Error: The AI output wasn't perfect JSON. Please retry or see raw text below.")
-        st.markdown(json_text)
+        # FAIL-SAFE: If JSON fails, show raw text instead of blank page
+        st.warning("⚠️ Formatting Warning: The AI returned text that isn't perfect code. Showing raw result below:")
+        st.markdown(json_text) 
         return
 
     # --- RENDER TABS ---
@@ -456,19 +466,19 @@ def render_json_results(json_text, url_input=None):
             encoded_term = urllib.parse.quote(search_term)
             st.markdown("### 🔎 Find Similar Products")
             col1, col2, col3 = st.columns(3)
-            with col1: st.link_button("🟢 Search on Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
-            with col2: st.link_button("🔵 Search on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
+            with col1: st.link_button("🟢 Search on Viator", f"[https://www.viator.com/searchResults/all?text=](https://www.viator.com/searchResults/all?text=){encoded_term}")
+            with col2: st.link_button("🔵 Search on GetYourGuide", f"[https://www.getyourguide.com/s?q=](https://www.getyourguide.com/s?q=){encoded_term}")
             with col3: 
                 klook_query = f'site:klook.com "{search_term}"'
-                st.link_button("🟠 Search on Klook", f"https://www.google.com/search?q={urllib.parse.quote(klook_query)}")
+                st.link_button("🟠 Search on Klook", f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(klook_query)}")
             col4, col5, col6 = st.columns(3)
-            with col4: st.link_button("🦉 Search on TripAdvisor", f"https://www.tripadvisor.com/Search?q={encoded_term}")
+            with col4: st.link_button("🦉 Search on TripAdvisor", f"[https://www.tripadvisor.com/Search?q=](https://www.tripadvisor.com/Search?q=){encoded_term}")
             with col5: 
                 fh_query = f'"{search_term}" FareHarbor'
-                st.link_button("⚓ Find on FareHarbor", f"https://www.google.com/search?q={urllib.parse.quote(fh_query)}")
+                st.link_button("⚓ Find on FareHarbor", f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(fh_query)}")
             with col6: 
                 rezdy_query = f'"{search_term}" Rezdy'
-                st.link_button("📅 Find on Rezdy", f"https://www.google.com/search?q={urllib.parse.quote(rezdy_query)}")
+                st.link_button("📅 Find on Rezdy", f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(rezdy_query)}")
 
         if url_input:
             try:
@@ -481,19 +491,19 @@ def render_json_results(json_text, url_input=None):
                 m_col1, m_col2 = st.columns(2)
                 with m_col1:
                     query = f"sites like {clean_domain}"
-                    st.link_button(f"🔎 Find Competitors to {merchant_name}", f"https://www.google.com/search?q={urllib.parse.quote(query)}")
+                    st.link_button(f"🔎 Find Competitors to {merchant_name}", f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(query)}")
                 with m_col2:
                     query_reviews = f"{merchant_name} website reviews scam legit"
-                    st.link_button(f"⭐ Check {merchant_name} Reliability", f"https://www.google.com/search?q={urllib.parse.quote(query_reviews)}")
+                    st.link_button(f"⭐ Check {merchant_name} Reliability", f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(query_reviews)}")
                 st.write("")
                 st.caption("Check if they sell on OTAs (via Google Search):")
                 m_col3, m_col4 = st.columns(2)
                 with m_col3:
                     query_viator = f"{merchant_name} on Viator"
-                    st.link_button(f"🟢 Find {merchant_name} on Viator", f"https://www.google.com/search?q={urllib.parse.quote(query_viator)}")
+                    st.link_button(f"🟢 Find {merchant_name} on Viator", f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(query_viator)}")
                 with m_col4:
                     query_gyg = f"{merchant_name} on Get Your Guide"
-                    st.link_button(f"🔵 Find {merchant_name} on GetYourGuide", f"https://www.google.com/search?q={urllib.parse.quote(query_gyg)}")
+                    st.link_button(f"🔵 Find {merchant_name} on GetYourGuide", f"[https://www.google.com/search?q=](https://www.google.com/search?q=){urllib.parse.quote(query_gyg)}")
             except Exception: pass
 
 # --- MAIN TABS ---
@@ -517,8 +527,7 @@ with t1:
                 if txt and "ERROR" not in txt:
                     res = smart_rotation_wrapper('summary', keys, txt)
                     print(f"✅ LINK SUCCESS | {datetime.now()}")
-                    if "AI Error" in res: st.error(res)
-                    else: render_json_results(res, url_input=url)
+                    render_json_results(res, url_input=url)
                 else: st.error("Error reading URL")
 
 # 2. TEXT SUMMARY
@@ -531,8 +540,7 @@ with t2:
             with st.spinner("Processing..."):
                 res = smart_rotation_wrapper('summary', keys, txt_in)
                 print(f"✅ TEXT SUCCESS | {datetime.now()}")
-                if "AI Error" in res: st.error(res)
-                else: render_json_results(res)
+                render_json_results(res)
 
 # 3. FILE SUMMARY
 with t3:
@@ -546,8 +554,7 @@ with t3:
                 if "Error" not in txt:
                     res = smart_rotation_wrapper('summary', keys, txt)
                     print(f"✅ FILE SUCCESS | {datetime.now()}")
-                    if "AI Error" in res: st.error(res)
-                    else: render_json_results(res)
+                    render_json_results(res)
                 else: st.error(txt)
 
 # 4. PHOTO RESIZER (8:5) WITH CAPTIONS
