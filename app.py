@@ -154,7 +154,6 @@ def get_valid_model(api_key):
 
 # --- MODEL FINDER (VISION) ---
 def get_vision_model(api_key):
-    """Specifically finds a model that supports images."""
     try:
         genai.configure(api_key=api_key)
         models = genai.list_models()
@@ -298,7 +297,6 @@ def call_qa_comparison(klook, merchant, api_key):
     return model.generate_content(prompt).text
 
 def call_gemini_vision_caption(image_bytes, api_key):
-    """Generates a caption for an image."""
     model_name = get_vision_model(api_key)
     if not model_name: return "Caption Error: No Vision Model Found (Check API Key)"
 
@@ -354,21 +352,26 @@ def google_map_link(location):
     return f"[{location}](https://www.google.com/maps/search/?api=1&query={query})"
 
 def clean_json_string(json_str):
-    """Cleans JSON string from markdown code blocks."""
-    json_str = json_str.strip()
-    if json_str.startswith("```json"):
-        json_str = json_str[7:]
-    if json_str.endswith("```"):
-        json_str = json_str[:-3]
-    return json_str.strip()
+    """
+    Cleanly extracts JSON object from string using Regex.
+    Catches '{...}' even if surrounded by text.
+    """
+    try:
+        # Find first '{' and last '}'
+        match = re.search(r'\{.*\}', json_str, re.DOTALL)
+        if match:
+            return match.group(0)
+        return json_str
+    except Exception:
+        return json_str
 
 def render_json_results(json_text, url_input=None):
     try:
         cleaned_json = clean_json_string(json_text)
         data = json.loads(cleaned_json)
     except json.JSONDecodeError:
-        st.error("⚠️ AI Generation Error: Output was not valid JSON. Please try again.")
-        st.text(json_text)
+        st.error("⚠️ AI Error: Could not parse JSON. Showing Raw Text below:")
+        st.code(json_text) # Fallback: Show raw text so user isn't blank
         return
 
     tab_names = [
