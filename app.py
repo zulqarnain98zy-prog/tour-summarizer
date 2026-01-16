@@ -69,7 +69,6 @@ def get_all_keys():
 def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
     if Image is None: return None, "⚠️ Error: 'Pillow' library missing."
     try:
-        # Handle both FileUpload objects and downloaded bytes
         if isinstance(image_input, bytes):
             img = Image.open(io.BytesIO(image_input))
         else:
@@ -80,7 +79,6 @@ def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
         img_resized = ImageOps.fit(img, (target_width, target_height), method=Image.Resampling.LANCZOS, centering=alignment)
         buf = io.BytesIO()
         img_format = img.format if img.format else 'JPEG'
-        # Convert RGBA to RGB for JPEGs
         if img_resized.mode == 'RGBA' and img_format.upper() == 'JPEG':
             img_resized = img_resized.convert('RGB')
         img_resized.save(buf, format=img_format, quality=90)
@@ -98,21 +96,18 @@ def extract_data_from_url(url):
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        # 1. EXTRACT IMAGES (Before deleting scripts)
+        # 1. EXTRACT IMAGES
         found_images = []
         for img in soup.find_all('img'):
             src = img.get('src')
             if src:
-                # Resolve relative URLs
                 if src.startswith('//'): src = 'https:' + src
                 elif src.startswith('/'): src = urllib.parse.urljoin(url, src)
                 
-                # Filter out likely icons/logos based on keywords
                 if not any(x in src.lower() for x in ['logo', 'icon', 'avatar', 'svg', 'blank', 'transparent']):
                     if src not in found_images:
                         found_images.append(src)
         
-        # Limit to top 15 images to save memory
         found_images = found_images[:15]
 
         # 2. EXTRACT TEXT
@@ -145,7 +140,7 @@ def sanitize_text(text):
     text = text.encode('utf-8', 'ignore').decode('utf-8')
     return text.replace("\\", "\\\\")[:95000]
 
-# --- GEMINI CALLS (UPDATED PROMPT FOR PHONE) ---
+# --- GEMINI CALLS ---
 def call_gemini_json_summary(text, api_key):
     model_name = get_working_model_name(api_key)
     if not model_name: return "Error: No available Gemini models found."
@@ -161,9 +156,7 @@ def call_gemini_json_summary(text, api_key):
     2. **What to Expect:** Single paragraph (**100-120 words**).
     3. **Policies:** Bullet points.
     4. **FAQ:** Look for "Q&A" or "FAQ" headers. Combine Q&A into a single paragraph or "Q: ... A: ..." list.
-    5. **PHONE NUMBER:** For 'merchant_contact', you MUST format it as **+X-XXX-XXX-XXXX**. 
-       - If the text has a local number (e.g. '03-9283...'), detect the country from the tour location and add the correct Country Code (e.g. Malaysia = +60, USA = +1, Australia = +61). 
-       - Do not leave it as a local number.
+    5. **PHONE NUMBER:** Format 'merchant_contact' as **+X-XXX-XXX-XXXX**. Detect country code from location.
     6. **Output:** ONLY raw JSON.
     
     **REQUIRED JSON STRUCTURE:**
@@ -199,12 +192,31 @@ def call_gemini_json_summary(text, api_key):
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
 
-# --- EMAIL DRAFTER ---
+# --- EMAIL DRAFTER (UPDATED: GAP ANALYSIS ONLY) ---
 def call_gemini_email_draft(json_data, api_key):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
-    prompt = f"Draft a professional Klook supplier email based on this data. Ask for missing info. Data: {json.dumps(json_data)}"
+    
+    # NEW STRICT PROMPT
+    prompt = f"""
+    You are a Klook Onboarding Specialist. 
+    **TASK:** Draft a concise email to the Merchant (Supplier).
+    **GOAL:** ONLY Request MISSING or VAGUE information. Do NOT summarize the tour details we already found.
+    
+    **RULES:**
+    1. **NO SUMMARY:** Do not list the "Highlights", "Description", or "Inclusions" unless you are asking a specific question about them.
+    2. **MANDATORY CHECKS:** Always ask to verify the final **Duration** and **Selling Price** if not explicitly clear.
+    3. **DETECT MISSING:** Look at the JSON. If fields are null, empty, or "TBA", ask for them.
+    4. **ACTIVITY LOGIC:** - If Water Activity: Ask about weather policy & life jackets.
+       - If Food: Ask about dietary options.
+       - If Hiking/Adventure: Ask about difficulty & age limits.
+       - If Transport: Ask about luggage limits.
+    5. **TONE:** Professional, direct, bullet points.
+    
+    **INPUT DATA:**
+    {json.dumps(json_data)}
+    """
     try:
         response = model.generate_content(prompt)
         return response.text
@@ -253,7 +265,6 @@ def render_output(json_text, url_input=None):
         info = data.get("basic_info", {})
         inc = data.get("inclusions", {})
         pol = data.get("policies", {})
-        seo = data.get("seo", {})
 
         copy_box("📍 Location", info.get('city_country'))
         copy_box("🏷️ Name", info.get('main_attractions'))
@@ -351,14 +362,37 @@ def render_output(json_text, url_input=None):
 
     with tabs[6]: st.code(str(seo.get("keywords")))
     with tabs[7]: st.write(data.get("pricing", {}).get("details"))
-    with tabs[8]: st.write(f"**OTA Search:** `{data.get('analysis',{}).get('ota_search_term','')}`")
+    
+    # --- ANALYSIS BUTTONS (FIXED) ---
+    with tabs[8]: 
+        an = data.get("analysis", {})
+        search_term = an.get("ota_search_term", "")
+        if not search_term: search_term = info.get('main_attractions', '')
+        
+        st.write(f"**OTA Search Term:** `{search_term}`")
+        if search_term:
+            encoded_term = urllib.parse.quote(search_term)
+            st.markdown("### 🔎 Find Similar Products")
+            c1, c2, c3 = st.columns(3)
+            with c1: st.link_button("🟢 Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
+            with c2: st.link_button("🔵 GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
+            with c3: st.link_button("🟠 Klook", f"https://www.google.com/search?q={urllib.parse.quote('site:klook.com ' + search_term)}")
+        
+        if url_input:
+            try:
+                domain = urllib.parse.urlparse(url_input).netloc.replace("www.", "")
+                merchant_name = domain.split('.')[0].capitalize()
+                st.markdown("---")
+                st.markdown(f"### 🏢 Merchant: **{merchant_name}**")
+                st.link_button(f"🔎 Competitors", f"https://www.google.com/search?q={urllib.parse.quote('sites like ' + domain)}")
+            except: pass
 
     with tabs[9]:
         st.header("📧 Draft Supplier Email")
         if st.button("📝 Draft Email"):
             keys = get_all_keys()
             if keys:
-                with st.spinner("Writing..."):
+                with st.spinner("Analyzing Gaps..."):
                     email = call_gemini_email_draft(data, keys[0])
                     st.text_area("Email Draft", value=email, height=300)
     
@@ -399,7 +433,6 @@ with t1:
                 st.error(err)
                 st.stop()
             
-            # Save Images to Session State for the other tab
             st.session_state['scraped_images'] = data_dict['images']
             
             status.write(f"✅ Found {len(data_dict['images'])} images & {len(data_dict['text'])} chars. Calling AI...")
@@ -430,10 +463,8 @@ with t3:
     c_align = st.selectbox("Crop Focus", ["Center", "Top", "Bottom", "Left", "Right"])
     align_map = {"Center":(0.5,0.5), "Top":(0.5,0.0), "Bottom":(0.5,1.0), "Left":(0.0,0.5), "Right":(1.0,0.5)}
     
-    # 1. FILE UPLOADER
     files = st.file_uploader("Upload Files", accept_multiple_files=True, type=['jpg','png','jpeg'])
     
-    # 2. SCRAPED IMAGES SELECTOR
     selected_scraped = []
     if st.session_state['scraped_images']:
         st.divider()
@@ -448,8 +479,6 @@ with t3:
     if st.button("Process Selected Images"):
         keys = get_all_keys()
         zip_buf = io.BytesIO()
-        
-        # Combine uploaded files + scraped URLs
         total_items = (files if files else []) + selected_scraped
         
         if not total_items:
@@ -458,7 +487,6 @@ with t3:
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 prog_bar = st.progress(0)
                 
-                # A. Process Uploaded Files
                 if files:
                     for i, f in enumerate(files):
                         b_img, err = resize_image_klook_standard(f, align_map[c_align])
@@ -467,7 +495,6 @@ with t3:
                             caption = call_gemini_caption(b_img, random.choice(keys)) if enable_captions and keys else ""
                             st.write(f"✅ {f.name} - {caption}")
 
-                # B. Process Scraped URLs
                 if selected_scraped:
                     st.write("--- Processing Web Images ---")
                     headers = {'User-Agent': 'Mozilla/5.0'}
