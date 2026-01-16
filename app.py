@@ -30,6 +30,18 @@ hide_st_style = """
             header {visibility: hidden;}
             .stCodeBlock { margin-bottom: 0px !important; }
             div[data-testid="stSidebarUserContent"] { padding-top: 2rem; }
+            
+            /* TIMELINE CSS */
+            .timeline-step {
+                padding: 10px;
+                margin-bottom: 10px;
+                border-left: 3px solid #ff5722;
+                background-color: #f8f9fa;
+                border-radius: 0 5px 5px 0;
+            }
+            .timeline-icon { font-size: 1.2rem; margin-right: 8px; }
+            .timeline-time { font-weight: bold; color: #555; font-size: 0.9rem; }
+            .timeline-title { font-weight: bold; font-size: 1rem; color: #333; }
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
@@ -53,7 +65,6 @@ def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
         target_width = 1280
         target_height = 800
         img_resized = ImageOps.fit(img, (target_width, target_height), method=Image.Resampling.LANCZOS, centering=alignment)
-        
         buf = io.BytesIO()
         img_format = img.format if img.format else 'JPEG'
         if img_resized.mode == 'RGBA' and img_format == 'JPEG':
@@ -102,43 +113,42 @@ def call_gemini_json_summary(text, api_key, tone="Standard"):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
-    # TONE INSTRUCTIONS MAP
     tone_instructions = {
-        "Standard (Neutral)": "Use a clear, factual, and balanced tone. Informative but not emotional.",
-        "Exciting (Marketing Hype)": "Use an energetic, persuasive, and 'hype' tone. Use power words like 'unforgettable', 'breathtaking', 'thrilling'. Sell the experience!",
-        "Professional (Corporate)": "Use a formal, polished, and premium tone. Focus on reliability, comfort, and service quality. Avoid slang.",
-        "Casual (Friendly)": "Use a warm, conversational, and inviting tone. Address the user as 'you'. Use contractions (e.g., 'You'll love' instead of 'Guests will enjoy')."
+        "Standard (Neutral)": "Use a clear, factual tone.",
+        "Exciting (Marketing Hype)": "Use an energetic, persuasive tone.",
+        "Professional (Corporate)": "Use a formal tone.",
+        "Casual (Friendly)": "Use a warm, conversational tone."
     }
-    selected_tone_instruction = tone_instructions.get(tone, tone_instructions["Standard (Neutral)"])
+    selected_tone = tone_instructions.get(tone, tone_instructions["Standard (Neutral)"])
 
     intro_prompt = f"""
     You are a travel product manager.
-    **TASK:** Convert the tour text into strict JSON.
-    **TONE INSTRUCTION:** {selected_tone_instruction}
-    **CRITICAL:** Output ONLY raw JSON. No Markdown.
+    **TASK:** Convert tour text into strict JSON matching Klook's backend structure.
+    **TONE:** {selected_tone}
+    **CRITICAL:** Output ONLY raw JSON.
     
     **REQUIRED JSON STRUCTURE:**
     {{
         "basic_info": {{
             "city_country": "City, Country",
             "group_type": "Private/Join-in",
-            "group_size": "Min/Max",
-            "duration": "Duration",
-            "main_attractions": "Attraction 1, Attraction 2",
-            "highlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],
-            "what_to_expect": "Short summary written in the requested tone",
+            "duration": "Duration (e.g. 8 hours)",
+            "main_attractions": "Tour Name",
+            "highlights": ["Highlight 1", "Highlight 2"],
+            "what_to_expect": "Description",
             "selling_points": ["Tag 1", "Tag 2"]
         }},
-        "start_end": {{
-            "start_time": "09:00",
-            "end_time": "17:00",
-            "join_method": "Pickup/Meetup",
-            "meet_pick_points": ["Location A"],
-            "drop_off": "Location B"
+        "klook_itinerary": {{
+            "start": {{ "time": "09:00", "location": "Meeting Point Name" }},
+            "segments": [
+                {{ "type": "Attraction", "time": "10:00", "name": "Eiffel Tower", "details": "Visit the summit", "location_search": "Eiffel Tower Paris" }},
+                {{ "type": "Transport", "time": "12:00", "name": "Bus Transfer", "details": "Travel to Versailles (1 hour)" }},
+                {{ "type": "Meal", "time": "13:00", "name": "Lunch", "details": "Local bistro lunch included" }}
+            ],
+            "end": {{ "time": "17:00", "location": "Drop off location" }}
         }},
-        "itinerary": {{ "steps": ["Step 1", "Step 2"] }},
-        "policies": {{ "cancellation": "Free cancel...", "merchant_contact": "Email/Phone" }},
-        "inclusions": {{ "included": ["Item A"], "excluded": ["Item B"] }},
+        "policies": {{ "cancellation": "Policy text", "merchant_contact": "Contact" }},
+        "inclusions": {{ "included": ["Item 1"], "excluded": ["Item 2"] }},
         "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": "Details" }},
         "seo": {{ "keywords": ["Key 1", "Key 2"] }},
         "pricing": {{ "details": "Price info" }},
@@ -189,7 +199,7 @@ def render_output(json_text, url_input=None):
         st.code(json_text)
         return
 
-    # --- SIDEBAR: COPY ASSISTANT ---
+    # --- SIDEBAR ---
     with st.sidebar:
         st.header("📋 Quick Copy Dashboard")
         st.info("Click the copy icon 📄 on the top-right of each box.")
@@ -197,61 +207,113 @@ def render_output(json_text, url_input=None):
         info = data.get("basic_info", {})
         inc = data.get("inclusions", {})
         pol = data.get("policies", {})
-        res = data.get("restrictions", {})
         seo = data.get("seo", {})
 
         copy_box("📍 Departure City", info.get('city_country'))
         copy_box("🏷️ Activity Name", info.get('main_attractions'))
         
-        # Highlights Formatting
         hl_list = info.get('highlights', [])
         hl_text = "\n".join([f"• {h}" for h in hl_list])
         copy_box("✨ Highlights", hl_text)
         
         copy_box("📝 Description", info.get('what_to_expect'))
         
-        # Inclusions Formatting
         inc_list = inc.get('included', [])
         inc_text = "\n".join([f"• {x}" for x in inc_list])
         copy_box("✅ Included", inc_text)
 
-        # Exclusions Formatting
         exc_list = inc.get('excluded', [])
         exc_text = "\n".join([f"• {x}" for x in exc_list])
         copy_box("❌ Excluded", exc_text)
-
-        copy_box("👶 Child Policy", res.get('child_policy'))
-        copy_box("🚫 Cancellation", pol.get('cancellation'))
         
         kw_list = seo.get('keywords', [])
         copy_box("🔍 SEO Keywords", ", ".join(kw_list))
 
         st.divider()
-        st.caption("Scroll main page for full analysis details ->")
 
-    # --- MAIN PAGE: 9 TABS (RESTORED) ---
+    # --- MAIN PAGE ---
     st.success("✅ Analysis Complete! Use the Sidebar 👈 to copy-paste.")
     
-    tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis"]
+    # 9 TABS
+    tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Klook Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis"]
     tabs = st.tabs(tab_names)
 
     with tabs[0]:
         st.write(f"**📍 Location:** {info.get('city_country')}")
         st.write(f"**⏳ Duration:** {info.get('duration')}")
-        st.write(f"**👥 Group:** {info.get('group_type')} ({info.get('group_size')})")
+        st.write(f"**👥 Group:** {info.get('group_type')}")
         st.divider()
         st.write("**🌟 Highlights:**")
         for h in info.get("highlights", []): st.write(f"- {h}")
         st.info(info.get("what_to_expect"))
 
     with tabs[1]:
-        s = data.get("start_end", {})
-        st.write(f"**Start:** {s.get('start_time')} | **End:** {s.get('end_time')}")
-        st.write(f"**Method:** {s.get('join_method')}")
+        itin = data.get("klook_itinerary", {})
+        start = itin.get("start", {})
+        end = itin.get("end", {})
+        c1, c2 = st.columns(2)
+        with c1:
+            st.success("🏁 **START**")
+            st.write(f"Time: **{start.get('time')}**")
+            st.write(f"Loc: {start.get('location')}")
+        with c2:
+            st.error("🏁 **END**")
+            st.write(f"Time: **{end.get('time')}**")
+            st.write(f"Loc: {end.get('location')}")
 
+    # --- NEW KLOOK ITINERARY TAB ---
     with tabs[2]:
-        steps = data.get("itinerary", {}).get("steps", [])
-        for step in steps: st.write(step)
+        itin = data.get("klook_itinerary", {})
+        start = itin.get("start", {})
+        end = itin.get("end", {})
+        segments = itin.get("segments", [])
+
+        # Start Node
+        st.markdown(f"""
+        <div class="timeline-step" style="border-left-color: #4CAF50;">
+            <span class="timeline-time">{start.get('time')}</span><br>
+            <span class="timeline-title">🏁 Departure Info</span><br>
+            <span style="font-size:0.9rem">{start.get('location')}</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Segments
+        for seg in segments:
+            sType = seg.get('type', 'Attraction')
+            sName = seg.get('name', 'Activity')
+            sTime = seg.get('time', '')
+            sDet = seg.get('details', '')
+            sLoc = seg.get('location_search', '')
+
+            # Icons & Colors
+            icon = "🎡"
+            color = "#ff5722" # Klook Orange
+            if "Transport" in sType: icon="🚌"; color="#2196F3"
+            if "Meal" in sType: icon="🍽️"; color="#9C27B0"
+            
+            # Google Maps Link
+            map_btn = ""
+            if sLoc:
+                query = urllib.parse.quote(sLoc)
+                link = f"https://www.google.com/maps/search/?api=1&query={query}"
+                map_btn = f' | <a href="{link}" target="_blank" style="text-decoration:none;">📍 Map</a>'
+
+            st.markdown(f"""
+            <div class="timeline-step" style="border-left-color: {color};">
+                <span class="timeline-time">{sTime}</span> <br>
+                <span class="timeline-title">{icon} {sType}: {sName}</span> {map_btn}<br>
+                <span style="font-size:0.9rem; color:#666;">{sDet}</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # End Node
+        st.markdown(f"""
+        <div class="timeline-step" style="border-left-color: #F44336;">
+            <span class="timeline-time">{end.get('time')}</span><br>
+            <span class="timeline-title">🏁 Return Info</span><br>
+            <span style="font-size:0.9rem">{end.get('location')}</span>
+        </div>
+        """, unsafe_allow_html=True)
 
     with tabs[3]:
         st.error(f"**Cancellation Policy:** {pol.get('cancellation', '-')}")
@@ -267,6 +329,7 @@ def render_output(json_text, url_input=None):
             for x in inc.get("excluded", []): st.write(f"- {x}")
 
     with tabs[5]:
+        res = data.get("restrictions", {})
         st.write(f"**Child:** {res.get('child_policy')}")
         st.write(f"**Accessibility:** {res.get('accessibility')}")
         with st.expander("View FAQ"): st.write(res.get('faq', 'No FAQ found.'))
@@ -274,13 +337,11 @@ def render_output(json_text, url_input=None):
     with tabs[6]: st.code(str(seo.get("keywords")))
     with tabs[7]: st.write(data.get("pricing", {}).get("details"))
     
-    # --- RESTORED ANALYSIS BUTTONS ---
     with tabs[8]: 
         an = data.get("analysis", {})
         search_term = an.get("ota_search_term", "")
-        if not search_term: 
-            search_term = info.get('main_attractions', '') # Fallback
-
+        if not search_term: search_term = info.get('main_attractions', '')
+        
         st.write(f"**OTA Search Term:** `{search_term}`")
         if search_term:
             encoded_term = urllib.parse.quote(search_term)
@@ -316,7 +377,6 @@ def smart_rotation_wrapper(text, keys, tone):
 # --- MAIN APP LOGIC ---
 t1, t2, t3 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "🖼️ Photo Resizer"])
 
-# TAB 1: LINK
 with t1:
     url = st.text_input("Paste Tour Link")
     tone_link = st.selectbox("Tone", ["Standard (Neutral)", "Exciting (Marketing Hype)", "Professional (Corporate)", "Casual (Friendly)"], key="tone_link")
@@ -344,21 +404,17 @@ with t1:
                 status.update(label="✅ Complete!", state="complete")
                 render_output(result, url_input=url)
 
-# TAB 2: TEXT
 with t2:
     raw_text = st.text_area("Paste Tour Text")
     tone_text = st.selectbox("Tone", ["Standard (Neutral)", "Exciting (Marketing Hype)", "Professional (Corporate)", "Casual (Friendly)"], key="tone_text")
-    
     if st.button("Generate from Text"):
         keys = get_all_keys()
         if not keys: st.error("❌ No Keys"); st.stop()
         if len(raw_text) < 50: st.error("❌ Text too short"); st.stop()
-        
         st.info(f"🚀 Processing with {tone_text} tone...")
         result = smart_rotation_wrapper(raw_text, keys, tone_text)
         render_output(result)
 
-# TAB 3: PHOTOS (RESTORED)
 with t3:
     st.info("Upload photos to resize to **8:5 (1280x800)**")
     enable_captions = st.checkbox("☑️ Generate AI Captions", value=True)
@@ -366,7 +422,6 @@ with t3:
     align_map = {"Center":(0.5,0.5), "Top":(0.5,0.0), "Bottom":(0.5,1.0), "Left":(0.0,0.5), "Right":(1.0,0.5)}
     
     files = st.file_uploader("Upload", accept_multiple_files=True, type=['jpg','png','jpeg'])
-    
     if files:
         keys = get_all_keys()
         if st.button("Process Images"):
@@ -381,12 +436,9 @@ with t3:
                         zf.writestr(f"resized_{f.name}", b_img)
                         c1, c2 = st.columns([1,3])
                         c1.image(b_img, width=150)
-                        
                         caption = "AI Disabled"
                         if enable_captions and keys:
                             caption = call_gemini_caption(b_img, random.choice(keys))
-                        
                         c2.text_area(f"Caption: {f.name}", value=caption, height=70)
-            
             st.success("✅ Done!")
             st.download_button("⬇️ Download ZIP", zip_buf.getvalue(), "images.zip", "application/zip")
