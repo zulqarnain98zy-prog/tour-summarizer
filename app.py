@@ -12,7 +12,6 @@ from datetime import datetime
 import sys
 import io
 import zipfile
-import streamlit.components.v1 as components
 
 # --- TRY IMPORTING IMAGE LIBRARY ---
 try:
@@ -23,13 +22,14 @@ except ImportError:
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Klook Magic Tool", page_icon="⭐", layout="wide")
 
-# --- HIDE STREAMLIT BRANDING ---
+# --- HIDE STREAMLIT BRANDING & TWEAK UI ---
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
             header {visibility: hidden;}
             .stCodeBlock { margin-bottom: 0px !important; }
+            div[data-testid="stSidebarUserContent"] { padding-top: 2rem; }
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
@@ -53,6 +53,7 @@ def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
         target_width = 1280
         target_height = 800
         img_resized = ImageOps.fit(img, (target_width, target_height), method=Image.Resampling.LANCZOS, centering=alignment)
+        
         buf = io.BytesIO()
         img_format = img.format if img.format else 'JPEG'
         if img_resized.mode == 'RGBA' and img_format == 'JPEG':
@@ -61,19 +62,6 @@ def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
         return buf.getvalue(), None
     except Exception as e:
         return None, f"Error processing image: {e}"
-
-# --- GEMINI CAPTION LOGIC ---
-def call_gemini_caption(image_bytes, api_key):
-    # Reuse the same model finder
-    model_name = get_working_model_name(api_key)
-    if not model_name: return "Error: No Model"
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name)
-    prompt = "Write a captivating social media caption (10-12 words, experiential verb start, no emojis)."
-    try:
-        response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
-        return response.text
-    except: return "Caption Failed"
 
 # --- SCRAPER ---
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -107,26 +95,28 @@ def sanitize_text(text):
     text = text.encode('utf-8', 'ignore').decode('utf-8')
     return text.replace("\\", "\\\\")[:25000]
 
-# --- GEMINI CALLS ---
+# --- GEMINI CALLS (WITH TONE) ---
 def call_gemini_json_summary(text, api_key, tone="Standard"):
     model_name = get_working_model_name(api_key)
     if not model_name: return "Error: No available Gemini models found."
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
+    # TONE INSTRUCTIONS MAP
     tone_instructions = {
-        "Standard (Neutral)": "Use a clear, factual, and balanced tone.",
-        "Exciting (Marketing Hype)": "Use an energetic, persuasive tone. Use power words.",
-        "Professional (Corporate)": "Use a formal, polished, and premium tone.",
-        "Casual (Friendly)": "Use a warm, conversational tone. Address the user as 'you'."
+        "Standard (Neutral)": "Use a clear, factual, and balanced tone. Informative but not emotional.",
+        "Exciting (Marketing Hype)": "Use an energetic, persuasive, and 'hype' tone. Use power words like 'unforgettable', 'breathtaking', 'thrilling'. Sell the experience!",
+        "Professional (Corporate)": "Use a formal, polished, and premium tone. Focus on reliability, comfort, and service quality. Avoid slang.",
+        "Casual (Friendly)": "Use a warm, conversational, and inviting tone. Address the user as 'you'. Use contractions (e.g., 'You'll love' instead of 'Guests will enjoy')."
     }
-    tone_instr = tone_instructions.get(tone, tone_instructions["Standard (Neutral)"])
+    
+    selected_tone_instruction = tone_instructions.get(tone, tone_instructions["Standard (Neutral)"])
 
     intro_prompt = f"""
     You are a travel product manager.
-    **TASK:** Convert text to JSON.
-    **TONE:** {tone_instr}
-    **CRITICAL:** Output ONLY raw JSON.
+    **TASK:** Convert the tour text into strict JSON.
+    **TONE INSTRUCTION:** {selected_tone_instruction}
+    **CRITICAL:** Output ONLY raw JSON. No Markdown.
     
     **REQUIRED JSON STRUCTURE:**
     {{
@@ -136,13 +126,19 @@ def call_gemini_json_summary(text, api_key, tone="Standard"):
             "group_size": "Min/Max",
             "duration": "Duration",
             "main_attractions": "Attraction 1, Attraction 2",
-            "highlights": ["Highlight 1", "Highlight 2"],
-            "what_to_expect": "Short summary",
+            "highlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],
+            "what_to_expect": "Short summary written in the requested tone",
             "selling_points": ["Tag 1", "Tag 2"]
         }},
-        "start_end": {{ "start_time": "09:00", "end_time": "17:00", "join_method": "Pickup/Meetup" }},
+        "start_end": {{
+            "start_time": "09:00",
+            "end_time": "17:00",
+            "join_method": "Pickup/Meetup",
+            "meet_pick_points": ["Location A"],
+            "drop_off": "Location B"
+        }},
         "itinerary": {{ "steps": ["Step 1", "Step 2"] }},
-        "policies": {{ "cancellation": "Free cancel...", "merchant_contact": "Contact Info" }},
+        "policies": {{ "cancellation": "Free cancel...", "merchant_contact": "Email/Phone" }},
         "inclusions": {{ "included": ["Item A"], "excluded": ["Item B"] }},
         "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": "Details" }},
         "seo": {{ "keywords": ["Key 1", "Key 2"] }},
@@ -157,80 +153,31 @@ def call_gemini_json_summary(text, api_key, tone="Standard"):
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
 
-# --- FLOATING WINDOW INJECTOR ---
-def render_floating_window(data):
-    info = data.get("basic_info", {})
-    inc = data.get("inclusions", {})
-    
-    # Safe cleaning function (Split into lines to avoid syntax errors)
-    def clean(s):
-        text = str(s)
-        text = text.replace('"', '&quot;')
-        text = text.replace("'", "&#39;")
-        text = text.replace("\n", " ")
-        return text
-    
-    city = clean(info.get('city_country', ''))
-    name = clean(info.get('main_attractions', ''))
-    desc = clean(info.get('what_to_expect', ''))
-    
-    hl_raw = info.get('highlights', [])
-    highlights = "\\n".join([f"• {h}" for h in hl_raw])
-    highlights = clean(highlights)
+def call_gemini_caption(image_bytes, api_key):
+    model_name = get_working_model_name(api_key)
+    if not model_name: return "Error: No Model"
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name)
+    prompt = "Write a captivating social media caption (10-12 words, experiential verb start, no emojis)."
+    try:
+        response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
+        return response.text
+    except: return "Caption Failed"
 
-    inc_raw = inc.get('included', [])
-    inclusions = "\\n".join([f"• {x}" for x in inc_raw])
-    inclusions = clean(inclusions)
-
-    html_code = f"""
-    <div id="floating-helper" style="
-        position: fixed; bottom: 20px; right: 20px; width: 320px;
-        background: white; border-radius: 12px; box-shadow: 0 5px 25px rgba(0,0,0,0.3);
-        z-index: 999999; font-family: sans-serif; border: 2px solid #ff5722;
-        max-height: 80vh; display: flex; flex-direction: column; overflow: hidden;
-    ">
-        <div style="background: #ff5722; color: white; padding: 12px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; cursor: move;">
-            <span>🪄 Magic Float</span>
-            <button onclick="document.getElementById('floating-helper').remove()" style="background:none; border:none; color:white; font-size:18px; cursor:pointer;">&times;</button>
-        </div>
-        <div style="padding: 10px; overflow-y: auto; flex: 1;">
-            
-            <div style="margin-bottom:10px;">
-                <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">CITY</div>
-                <div onclick="navigator.clipboard.writeText('{city}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{city}">{city} 📋</div>
-            </div>
-
-            <div style="margin-bottom:10px;">
-                <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">NAME</div>
-                <div onclick="navigator.clipboard.writeText('{name}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{name}">{name} 📋</div>
-            </div>
-
-            <div style="margin-bottom:10px;">
-                <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">HIGHLIGHTS</div>
-                <div onclick="navigator.clipboard.writeText('{highlights}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:pre-wrap; max-height:80px; overflow-y:auto;" title="Click to Copy">{highlights} 📋</div>
-            </div>
-            
-            <div style="margin-bottom:10px;">
-                <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">DESCRIPTION</div>
-                <div onclick="navigator.clipboard.writeText('{desc}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Click to Copy Description 📋</div>
-            </div>
-            
-            <div style="margin-bottom:10px;">
-                <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">INCLUDED</div>
-                <div onclick="navigator.clipboard.writeText('{inclusions}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:pre-wrap; max-height:60px; overflow-y:auto;">{inclusions} 📋</div>
-            </div>
-        </div>
-        <div style="background:#eee; padding:5px; text-align:center; font-size:10px; color:#888;">Click boxes to Copy</div>
-    </div>
-    """
-    components.html(html_code, height=0)
+# --- HELPER: RENDER COPY BOX ---
+def copy_box(label, text, height=None):
+    if not text: return
+    st.caption(f"**{label}**")
+    st.code(str(text), language="text") 
 
 # --- UI RENDERER ---
-def render_output(json_text):
+def render_output(json_text, url_input=None):
     if json_text == "429_LIMIT":
-        st.error("⏳ Quota Exceeded."); return
+        st.error("⏳ Quota Exceeded. Please wait 1 minute.")
+        return
     if not json_text or "Error" in json_text:
-        st.error(f"⚠️ {json_text}"); return
+        st.error(f"⚠️ {json_text}")
+        return
 
     clean_text = json_text.strip()
     if clean_text.startswith("```json"): clean_text = clean_text[7:]
@@ -239,44 +186,79 @@ def render_output(json_text):
     try:
         data = json.loads(clean_text)
     except:
-        st.warning("⚠️ Formatting Issue.")
+        st.warning("⚠️ Formatting Issue. See 'Raw Response' below.")
+        st.code(json_text)
         return
 
-    # FLOATING WINDOW BUTTON
-    if st.button("🚀 Launch Floating Window"):
-        render_floating_window(data)
-        st.toast("Floating Window Active!", icon="🎈")
-
-    info = data.get("basic_info", {})
-    st.success(f"✅ Generated: {info.get('main_attractions')}")
-    
-    t1, t2, t3, t4, t5 = st.tabs(["Overview", "Itinerary", "Policies", "Inclusions", "SEO"])
-    
-    with t1:
-        st.caption("City & Country")
-        st.code(info.get('city_country'), language="text")
-        st.caption("Activity Name")
-        st.code(info.get('main_attractions'), language="text")
+    # --- SIDEBAR: THE COPY ASSISTANT ---
+    with st.sidebar:
+        st.header("📋 Quick Copy Dashboard")
+        st.info("Click the copy icon 📄 on the top-right of each box.")
         
-        st.caption("Highlights")
-        hl_text = "\n".join([f"• {h}" for h in info.get('highlights', [])])
-        st.text_area("Highlights", value=hl_text, height=150)
-        
-        st.caption("Description")
-        st.text_area("Description", value=info.get('what_to_expect'), height=150)
-
-    with t2:
-        steps = data.get("itinerary", {}).get("steps", [])
-        for step in steps: st.write(f"📍 {step}")
-
-    with t3:
-        pol = data.get("policies", {})
-        st.write(f"**Cancellation:** {pol.get('cancellation')}")
-        st.write(f"**Contact:** {pol.get('merchant_contact')}")
-
-    # FIX: Clean Bullet Points for Inclusions (No more raw JSON)
-    with t4:
+        info = data.get("basic_info", {})
         inc = data.get("inclusions", {})
+        pol = data.get("policies", {})
+        res = data.get("restrictions", {})
+        seo = data.get("seo", {})
+
+        copy_box("📍 Departure City", info.get('city_country'))
+        copy_box("🏷️ Activity Name", info.get('main_attractions'))
+        
+        # Format Highlights
+        hl_list = info.get('highlights', [])
+        hl_text = "\n".join([f"• {h}" for h in hl_list])
+        copy_box("✨ Highlights", hl_text)
+        
+        copy_box("📝 Description", info.get('what_to_expect'))
+        
+        # Format Inclusions
+        inc_list = inc.get('included', [])
+        inc_text = "\n".join([f"• {x}" for x in inc_list])
+        copy_box("✅ Included", inc_text)
+
+        # Format Exclusions
+        exc_list = inc.get('excluded', [])
+        exc_text = "\n".join([f"• {x}" for x in exc_list])
+        copy_box("❌ Excluded", exc_text)
+
+        copy_box("👶 Child Policy", res.get('child_policy'))
+        copy_box("🚫 Cancellation", pol.get('cancellation'))
+        
+        kw_list = seo.get('keywords', [])
+        copy_box("🔍 SEO Keywords", ", ".join(kw_list))
+
+        st.divider()
+        st.caption("Scroll main page for full analysis details ->")
+
+    # --- MAIN PAGE: VISUAL TABS ---
+    st.success("✅ Analysis Complete! Use the Sidebar 👈 to copy-paste.")
+    
+    tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis"]
+    tabs = st.tabs(tab_names)
+
+    with tabs[0]:
+        st.write(f"**📍 Location:** {info.get('city_country')}")
+        st.write(f"**⏳ Duration:** {info.get('duration')}")
+        st.write(f"**👥 Group:** {info.get('group_type')} ({info.get('group_size')})")
+        st.divider()
+        st.write("**🌟 Highlights:**")
+        for h in info.get("highlights", []): st.write(f"- {h}")
+        st.info(info.get("what_to_expect"))
+
+    with tabs[1]:
+        s = data.get("start_end", {})
+        st.write(f"**Start:** {s.get('start_time')} | **End:** {s.get('end_time')}")
+        st.write(f"**Method:** {s.get('join_method')}")
+
+    with tabs[2]:
+        steps = data.get("itinerary", {}).get("steps", [])
+        for step in steps: st.write(step)
+
+    with tabs[3]:
+        st.error(f"**Cancellation Policy:** {pol.get('cancellation', '-')}")
+        st.write(f"**📞 Merchant Contact:** {pol.get('merchant_contact', '-')}")
+
+    with tabs[4]:
         c1, c2 = st.columns(2)
         with c1: 
             st.write("✅ **Included**")
@@ -284,42 +266,108 @@ def render_output(json_text):
         with c2: 
             st.write("❌ **Excluded**")
             for x in inc.get("excluded", []): st.write(f"- {x}")
-        
-    with t5:
-        st.code(", ".join(data.get("seo", {}).get("keywords", [])), language="text")
 
-# --- SMART ROTATION ---
+    with tabs[5]:
+        st.write(f"**Child:** {res.get('child_policy')}")
+        st.write(f"**Accessibility:** {res.get('accessibility')}")
+        with st.expander("View FAQ"): st.write(res.get('faq', 'No FAQ found.'))
+
+    with tabs[6]: st.code(str(seo.get("keywords")))
+    with tabs[7]: st.write(data.get("pricing", {}).get("details"))
+    
+    with tabs[8]: 
+        an = data.get("analysis", {})
+        search_term = an.get("ota_search_term", "")
+        st.write(f"**OTA Search Term:** `{search_term}`")
+        if search_term:
+            encoded_term = urllib.parse.quote(search_term)
+            st.markdown("### 🔎 Find Similar Products")
+            c1, c2, c3 = st.columns(3)
+            with c1: st.link_button("🟢 Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
+            with c2: st.link_button("🔵 GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
+            with c3: st.link_button("🟠 Klook", f"https://www.google.com/search?q={urllib.parse.quote('site:klook.com ' + search_term)}")
+        
+        if url_input:
+            try:
+                domain = urllib.parse.urlparse(url_input).netloc.replace("www.", "")
+                merchant_name = domain.split('.')[0].capitalize()
+                st.markdown("---")
+                st.markdown(f"### 🏢 Merchant: **{merchant_name}**")
+                st.link_button(f"🔎 Competitors", f"https://www.google.com/search?q={urllib.parse.quote('sites like ' + domain)}")
+            except: pass
+
+# --- SMART ROTATION (WITH TONE) ---
 def smart_rotation_wrapper(text, keys, tone):
     if not keys: return "⚠️ No API keys found."
     random.shuffle(keys)
-    for key in keys:
-        result = call_gemini_json_summary(text, key, tone)
-        if "Error" not in result: return result
-    return "⚠️ Server Busy."
+    max_retries = 3
+    for attempt in range(max_retries):
+        for key in keys:
+            result = call_gemini_json_summary(text, key, tone)
+            if result == "429_LIMIT":
+                time.sleep(1)
+                continue
+            if "Error" not in result: return result
+    return "⚠️ Server Busy. Try again."
 
 # --- MAIN APP LOGIC ---
-t1, t2, t3 = st.tabs(["Link Summary", "Text Summary", "🖼️ Photo Resizer"])
+t1, t2, t3 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "🖼️ Photo Resizer"])
 
+# TAB 1: LINK
 with t1:
     url = st.text_input("Paste Tour Link")
-    tone_link = st.selectbox("Tone", ["Standard (Neutral)", "Exciting (Marketing Hype)", "Professional (Corporate)"], key="t1")
+    
+    # --- TONE SELECTOR ---
+    tone_link = st.selectbox(
+        "✍️ Select Tone", 
+        ["Standard (Neutral)", "Exciting (Marketing Hype)", "Professional (Corporate)", "Casual (Friendly)"],
+        key="tone_link"
+    )
+    
     if st.button("Generate from Link"):
         keys = get_all_keys()
-        if keys and url:
-            text = extract_text_from_url(url)
-            result = smart_rotation_wrapper(text, keys, tone_link)
-            render_output(result)
+        if not keys: st.error("❌ No API Keys"); st.stop()
+        if not url: st.error("❌ Enter URL"); st.stop()
 
+        with st.status("🚀 Processing...", expanded=True) as status:
+            status.write("🕷️ Scraping URL...")
+            text = extract_text_from_url(url)
+            if not text or "ERROR" in text:
+                status.update(label="❌ Scrape Failed", state="error")
+                st.error(f"Scraper Error: {text}")
+                st.stop()
+            
+            status.write(f"✅ Scraped {len(text)} chars. Calling AI ({tone_link})...")
+            result = smart_rotation_wrapper(text, keys, tone_link)
+            
+            if "Busy" in result or "Error" in result:
+                status.update(label="❌ AI Failed", state="error")
+                st.error(result)
+            else:
+                status.update(label="✅ Complete!", state="complete")
+                render_output(result, url_input=url)
+
+# TAB 2: TEXT
 with t2:
-    raw = st.text_area("Paste Text")
-    tone_text = st.selectbox("Tone", ["Standard (Neutral)", "Exciting (Marketing Hype)", "Professional (Corporate)"], key="t2")
+    raw_text = st.text_area("Paste Tour Text")
+    
+    # --- TONE SELECTOR ---
+    tone_text = st.selectbox(
+        "✍️ Select Tone", 
+        ["Standard (Neutral)", "Exciting (Marketing Hype)", "Professional (Corporate)", "Casual (Friendly)"],
+        key="tone_text"
+    )
+    
     if st.button("Generate from Text"):
         keys = get_all_keys()
-        if keys and len(raw) > 50:
-            result = smart_rotation_wrapper(raw, keys, tone_text)
-            render_output(result)
+        if not keys: st.error("❌ No Keys"); st.stop()
+        if len(raw_text) < 50: st.error("❌ Text too short"); st.stop()
+        
+        st.info(f"🚀 Processing with {tone_text} tone...")
+        result = smart_rotation_wrapper(raw_text, keys, tone_text)
+        render_output(result)
 
-# RESTORED PHOTO RESIZER
+# TAB 3: PHOTOS (Restored!)
 with t3:
     st.info("Upload photos to resize to **8:5 (1280x800)**")
     enable_captions = st.checkbox("☑️ Generate AI Captions", value=True)
