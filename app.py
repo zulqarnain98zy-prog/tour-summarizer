@@ -257,7 +257,7 @@ def render_output(json_text, url_input=None):
         st.code(json_text)
         return
         
-    # --- DEFINE VARIABLES FIRST ---
+    # --- DEFINE VARIABLES ---
     info = data.get("basic_info", {})
     inc = data.get("inclusions", {})
     pol = data.get("policies", {})
@@ -328,11 +328,20 @@ def render_output(json_text, url_input=None):
             sName = seg.get('name', 'Activity')
             sTime = seg.get('time', '')
             sDet = seg.get('details', '')
+            
+            # --- MAP LOGIC RESTORED ---
+            sLoc = seg.get('location_search', '')
+            map_btn = ""
+            if sLoc:
+                query = urllib.parse.quote(sLoc)
+                link = f"https://www.google.com/maps/search/?api=1&query={query}"
+                map_btn = f' | <a href="{link}" target="_blank" style="text-decoration:none; color:#2196F3;">📍 Map</a>'
+            
             icon = "🎡"
             color = "#ff5722"
             if "Transport" in sType: icon="🚌"; color="#2196F3"
             if "Meal" in sType: icon="🍽️"; color="#9C27B0"
-            st.markdown(f"""<div class="timeline-step" style="border-left-color: {color};"><span class="timeline-time">{sTime}</span> <br><span class="timeline-title">{icon} {sType}: {sName}</span><br><span style="font-size:0.9rem; color:#666;">{sDet}</span></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="timeline-step" style="border-left-color: {color};"><span class="timeline-time">{sTime}</span> <br><span class="timeline-title">{icon} {sType}: {sName}</span> {map_btn}<br><span style="font-size:0.9rem; color:#666;">{sDet}</span></div>""", unsafe_allow_html=True)
 
         st.markdown(f"""<div class="timeline-step" style="border-left-color: #F44336;"><span class="timeline-time">{end.get('time')}</span><br><span class="timeline-title">🏁 Return Info</span><br><span style="font-size:0.9rem">{end.get('location')}</span></div>""", unsafe_allow_html=True)
 
@@ -457,7 +466,7 @@ with t2:
         if "Busy" not in result and "Error" not in result:
             st.session_state['gen_result'] = result
 
-# --- PHOTO RESIZER TAB (FIXED INTERACTIVE MODE) ---
+# --- PHOTO RESIZER TAB ---
 with t3:
     st.info("Upload photos OR use photos scraped from the link.")
     enable_captions = st.checkbox("☑️ Generate AI Captions", value=True)
@@ -486,24 +495,19 @@ with t3:
         if not total_items:
             st.warning("⚠️ No images selected.")
         else:
-            # We will build the ZIP file in memory at the end
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 
-                # PROCESSING LOOP
                 prog_bar = st.progress(0)
                 total_count = len(total_items)
                 
                 for idx, item in enumerate(total_items):
                     prog_bar.progress((idx + 1) / total_count)
                     
-                    # A. Handle FileUpload
-                    if hasattr(item, 'read'): # It's a Streamlit file
+                    if hasattr(item, 'read'): # FileUpload
                         fname = item.name
                         b_img, err = resize_image_klook_standard(item, align_map[c_align])
-                    
-                    # B. Handle Scraped URL
-                    else:
+                    else: # URL
                         fname = f"web_image_{idx}.jpg"
                         try:
                             headers = {'User-Agent': 'Mozilla/5.0'}
@@ -511,24 +515,17 @@ with t3:
                             b_img, err = resize_image_klook_standard(resp.content, align_map[c_align])
                         except: b_img = None
                     
-                    # C. RENDER RESULT ROW
                     if b_img:
-                        # 1. Add to ZIP
                         zf.writestr(f"resized_{fname}", b_img)
                         
-                        # 2. Show UI Row
                         c1, c2 = st.columns([1, 2])
                         with c1:
                             st.image(b_img, caption=fname, use_column_width=True)
                         with c2:
-                            # Generate Caption?
                             caption_text = ""
                             if enable_captions and keys:
                                 caption_text = call_gemini_caption(b_img, random.choice(keys))
-                            
                             st.text_area(f"Caption for {fname}", value=caption_text, height=100)
-                            
-                            # Individual Download
                             st.download_button(
                                 label=f"⬇️ Download {fname}",
                                 data=b_img,
@@ -537,7 +534,6 @@ with t3:
                             )
                         st.divider()
 
-            # GLOBAL DOWNLOAD
             st.success("✅ All images processed!")
             st.download_button("⬇️ Download All (ZIP)", zip_buf.getvalue(), "klook_images.zip", "application/zip")
 
