@@ -47,7 +47,7 @@ st.markdown(hide_st_style, unsafe_allow_html=True)
 
 st.title("⭐ Klook Western Magic Tool")
 
-# --- SESSION STATE INITIALIZATION (THE FIX) ---
+# --- SESSION STATE INITIALIZATION ---
 if 'gen_result' not in st.session_state:
     st.session_state['gen_result'] = None
 if 'url_input' not in st.session_state:
@@ -111,26 +111,24 @@ def sanitize_text(text):
     text = text.encode('utf-8', 'ignore').decode('utf-8')
     return text.replace("\\", "\\\\")[:25000]
 
-# --- GEMINI CALLS ---
-def call_gemini_json_summary(text, api_key, tone="Standard"):
+# --- GEMINI CALLS (STRICT FORMATTING) ---
+def call_gemini_json_summary(text, api_key):
     model_name = get_working_model_name(api_key)
     if not model_name: return "Error: No available Gemini models found."
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
-    tone_instructions = {
-        "Standard (Neutral)": "Use a clear, factual tone.",
-        "Exciting (Marketing Hype)": "Use an energetic, persuasive tone.",
-        "Professional (Corporate)": "Use a formal tone.",
-        "Casual (Friendly)": "Use a warm, conversational tone."
-    }
-    selected_tone = tone_instructions.get(tone, tone_instructions["Standard (Neutral)"])
-
+    # UPDATED STRICT PROMPT
     intro_prompt = f"""
-    You are a travel product manager.
+    You are a content specialist for Klook.
     **TASK:** Convert tour text into strict JSON matching Klook's backend structure.
-    **TONE:** {selected_tone}
-    **CRITICAL:** Output ONLY raw JSON.
+    
+    **STRICT FORMATTING RULES:**
+    1. **Highlights:** Must be exactly **4-5 bullet points**. Each point must be **10-12 words long**.
+    2. **What to Expect:** Must be a **single paragraph** of approximately **100-120 words**.
+    3. **Policies & FAQ:** Must be formatted as **bullet points** (lists), not paragraphs.
+    4. **No Full Stops:** Do NOT use periods (.) at the end of Highlights or Inclusion bullet points.
+    5. **Output:** ONLY raw JSON.
     
     **REQUIRED JSON STRUCTURE:**
     {{
@@ -139,8 +137,8 @@ def call_gemini_json_summary(text, api_key, tone="Standard"):
             "group_type": "Private/Join-in",
             "duration": "Duration (e.g. 8 hours)",
             "main_attractions": "Tour Name",
-            "highlights": ["Highlight 1", "Highlight 2"],
-            "what_to_expect": "Description",
+            "highlights": ["Highlight 1 (10-12 words)", "Highlight 2 (10-12 words)", "Highlight 3", "Highlight 4"],
+            "what_to_expect": "Single paragraph (100-120 words).",
             "selling_points": ["Tag 1", "Tag 2"]
         }},
         "klook_itinerary": {{
@@ -153,8 +151,8 @@ def call_gemini_json_summary(text, api_key, tone="Standard"):
             "end": {{ "time": "17:00", "location": "Drop off location" }}
         }},
         "policies": {{ "cancellation": "Policy text", "merchant_contact": "Contact" }},
-        "inclusions": {{ "included": ["Item 1"], "excluded": ["Item 2"] }},
-        "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": "Details" }},
+        "inclusions": {{ "included": ["Item 1 (No period)", "Item 2 (No period)"], "excluded": ["Item 3 (No period)"] }},
+        "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": ["Question 1?", "Question 2?"] }},
         "seo": {{ "keywords": ["Key 1", "Key 2"] }},
         "pricing": {{ "details": "Price info" }},
         "analysis": {{ "ota_search_term": "Product Name" }}
@@ -167,7 +165,7 @@ def call_gemini_json_summary(text, api_key, tone="Standard"):
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
 
-# --- NEW: EMAIL DRAFTER FUNCTION ---
+# --- EMAIL DRAFTER ---
 def call_gemini_email_draft(json_data, api_key):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
@@ -265,7 +263,7 @@ def render_output(json_text, url_input=None):
     # --- MAIN PAGE ---
     st.success("✅ Analysis Complete! Use the Sidebar 👈 to copy-paste.")
     
-    # ADDED "SUPPLIER EMAIL" TAB
+    # TABS
     tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Klook Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis", "📧 Supplier Email"]
     tabs = st.tabs(tab_names)
 
@@ -338,7 +336,14 @@ def render_output(json_text, url_input=None):
         res = data.get("restrictions", {})
         st.write(f"**Child:** {res.get('child_policy')}")
         st.write(f"**Accessibility:** {res.get('accessibility')}")
-        with st.expander("View FAQ"): st.write(res.get('faq', 'No FAQ found.'))
+        
+        # FAQ handling (list or text)
+        faq = res.get('faq')
+        with st.expander("View FAQ"):
+            if isinstance(faq, list):
+                for f in faq: st.write(f"- {f}")
+            else:
+                st.write(faq or 'No FAQ found.')
 
     with tabs[6]: st.code(str(seo.get("keywords")))
     with tabs[7]: st.write(data.get("pricing", {}).get("details"))
@@ -366,29 +371,28 @@ def render_output(json_text, url_input=None):
                 st.link_button(f"🔎 Competitors", f"https://www.google.com/search?q={urllib.parse.quote('sites like ' + domain)}")
             except: pass
 
-    # --- NEW EMAIL TAB CONTENT ---
+    # --- EMAIL TAB ---
     with tabs[9]:
         st.header("📧 Draft Supplier Email")
-        st.caption("Use this to request missing info or confirm details with the merchant.")
+        st.caption("Request missing info/confirmation.")
         
-        # State-Aware Button Logic
         if st.button("📝 Draft Email to Supplier"):
             keys = get_all_keys()
             if keys:
-                with st.spinner("Analyzing missing info..."):
+                with st.spinner("Analyzing..."):
                     email_draft = call_gemini_email_draft(data, keys[0])
                     st.text_area("Copy this email:", value=email_draft, height=300)
             else:
                 st.error("No API Keys found.")
 
 # --- SMART ROTATION ---
-def smart_rotation_wrapper(text, keys, tone):
+def smart_rotation_wrapper(text, keys):
     if not keys: return "⚠️ No API keys found."
     random.shuffle(keys)
     max_retries = 3
     for attempt in range(max_retries):
         for key in keys:
-            result = call_gemini_json_summary(text, key, tone)
+            result = call_gemini_json_summary(text, key)
             if result == "429_LIMIT":
                 time.sleep(1)
                 continue
@@ -400,8 +404,6 @@ t1, t2, t3 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "🖼️ Phot
 
 with t1:
     url = st.text_input("Paste Tour Link")
-    tone_link = st.selectbox("Tone", ["Standard (Neutral)", "Exciting (Marketing Hype)", "Professional (Corporate)", "Casual (Friendly)"], key="tone_link")
-    
     if st.button("Generate from Link"):
         keys = get_all_keys()
         if not keys: st.error("❌ No API Keys"); st.stop()
@@ -415,10 +417,9 @@ with t1:
                 st.error(f"Scraper Error: {text}")
                 st.stop()
             
-            status.write(f"✅ Scraped {len(text)} chars. Calling AI ({tone_link})...")
-            result = smart_rotation_wrapper(text, keys, tone_link)
+            status.write(f"✅ Scraped {len(text)} chars. Calling AI...")
+            result = smart_rotation_wrapper(text, keys)
             
-            # --- SAVE TO SESSION STATE ---
             if "Busy" not in result and "Error" not in result:
                 st.session_state['gen_result'] = result
                 st.session_state['url_input'] = url
@@ -428,19 +429,16 @@ with t1:
                 st.error(result)
             else:
                 status.update(label="✅ Complete!", state="complete")
-                # Removed direct render call to prevent duplicates
 
 with t2:
     raw_text = st.text_area("Paste Tour Text")
-    tone_text = st.selectbox("Tone", ["Standard (Neutral)", "Exciting (Marketing Hype)", "Professional (Corporate)", "Casual (Friendly)"], key="tone_text")
     if st.button("Generate from Text"):
         keys = get_all_keys()
         if not keys: st.error("❌ No Keys"); st.stop()
         if len(raw_text) < 50: st.error("❌ Text too short"); st.stop()
-        st.info(f"🚀 Processing with {tone_text} tone...")
-        result = smart_rotation_wrapper(raw_text, keys, tone_text)
+        st.info(f"🚀 Processing...")
+        result = smart_rotation_wrapper(raw_text, keys)
         
-        # --- SAVE TO SESSION STATE ---
         if "Busy" not in result and "Error" not in result:
             st.session_state['gen_result'] = result
             st.session_state['url_input'] = None
@@ -473,6 +471,6 @@ with t3:
             st.success("✅ Done!")
             st.download_button("⬇️ Download ZIP", zip_buf.getvalue(), "images.zip", "application/zip")
 
-# --- ALWAYS RENDER IF DATA EXISTS (PERSISTENCE) ---
+# --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
