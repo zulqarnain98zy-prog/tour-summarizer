@@ -162,9 +162,35 @@ def call_gemini_json_summary(text, api_key, tone="Standard"):
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
 
+# --- NEW: EMAIL DRAFTER FUNCTION ---
+def call_gemini_email_draft(json_data, api_key):
+    model_name = get_working_model_name(api_key)
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name)
+    
+    prompt = f"""
+    You are a Klook Onboarding Specialist. 
+    **TASK:** Draft a polite, professional email to the Merchant (Supplier) requesting missing information based on the JSON data below.
+    
+    **CRITICAL REQUIREMENTS:**
+    1. **Mandatory Checks:** ALWAYS ask them to verify the final **Pricing** and the exact **Duration** of the activity.
+    2. **Missing Info:** Identify any fields in the JSON that are "null", "empty", "not specified", or vague (e.g. "TBC"). Ask for these specifically.
+    3. **Nature of Activity Logic:** - If it's a **Water Activity**, ask about weather policies/life jackets.
+       - If it's **Food**, ask about dietary options (Halal/Veg).
+       - If it's **Transport**, ask about luggage limits/waiting time.
+       - If it's **Adventure**, ask about age/weight limits.
+    4. **Format:** Use a clear bulleted list. Keep it concise.
+    
+    **INPUT DATA:**
+    {json.dumps(json_data)}
+    """
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except: return "Error generating email."
+
 def call_gemini_caption(image_bytes, api_key):
     model_name = get_working_model_name(api_key)
-    if not model_name: return "Error: No Model"
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     prompt = "Write a captivating social media caption (10-12 words, experiential verb start, no emojis)."
@@ -234,8 +260,8 @@ def render_output(json_text, url_input=None):
     # --- MAIN PAGE ---
     st.success("✅ Analysis Complete! Use the Sidebar 👈 to copy-paste.")
     
-    # 9 TABS
-    tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Klook Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis"]
+    # ADDED "SUPPLIER EMAIL" TAB
+    tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Klook Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis", "📧 Supplier Email"]
     tabs = st.tabs(tab_names)
 
     with tabs[0]:
@@ -261,59 +287,34 @@ def render_output(json_text, url_input=None):
             st.write(f"Time: **{end.get('time')}**")
             st.write(f"Loc: {end.get('location')}")
 
-    # --- NEW KLOOK ITINERARY TAB ---
     with tabs[2]:
         itin = data.get("klook_itinerary", {})
         start = itin.get("start", {})
         end = itin.get("end", {})
         segments = itin.get("segments", [])
 
-        # Start Node
-        st.markdown(f"""
-        <div class="timeline-step" style="border-left-color: #4CAF50;">
-            <span class="timeline-time">{start.get('time')}</span><br>
-            <span class="timeline-title">🏁 Departure Info</span><br>
-            <span style="font-size:0.9rem">{start.get('location')}</span>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="timeline-step" style="border-left-color: #4CAF50;"><span class="timeline-time">{start.get('time')}</span><br><span class="timeline-title">🏁 Departure Info</span><br><span style="font-size:0.9rem">{start.get('location')}</span></div>""", unsafe_allow_html=True)
 
-        # Segments
         for seg in segments:
             sType = seg.get('type', 'Attraction')
             sName = seg.get('name', 'Activity')
             sTime = seg.get('time', '')
             sDet = seg.get('details', '')
             sLoc = seg.get('location_search', '')
-
-            # Icons & Colors
             icon = "🎡"
-            color = "#ff5722" # Klook Orange
+            color = "#ff5722"
             if "Transport" in sType: icon="🚌"; color="#2196F3"
             if "Meal" in sType: icon="🍽️"; color="#9C27B0"
             
-            # Google Maps Link
             map_btn = ""
             if sLoc:
                 query = urllib.parse.quote(sLoc)
                 link = f"https://www.google.com/maps/search/?api=1&query={query}"
                 map_btn = f' | <a href="{link}" target="_blank" style="text-decoration:none;">📍 Map</a>'
 
-            st.markdown(f"""
-            <div class="timeline-step" style="border-left-color: {color};">
-                <span class="timeline-time">{sTime}</span> <br>
-                <span class="timeline-title">{icon} {sType}: {sName}</span> {map_btn}<br>
-                <span style="font-size:0.9rem; color:#666;">{sDet}</span>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="timeline-step" style="border-left-color: {color};"><span class="timeline-time">{sTime}</span> <br><span class="timeline-title">{icon} {sType}: {sName}</span> {map_btn}<br><span style="font-size:0.9rem; color:#666;">{sDet}</span></div>""", unsafe_allow_html=True)
 
-        # End Node
-        st.markdown(f"""
-        <div class="timeline-step" style="border-left-color: #F44336;">
-            <span class="timeline-time">{end.get('time')}</span><br>
-            <span class="timeline-title">🏁 Return Info</span><br>
-            <span style="font-size:0.9rem">{end.get('location')}</span>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="timeline-step" style="border-left-color: #F44336;"><span class="timeline-time">{end.get('time')}</span><br><span class="timeline-title">🏁 Return Info</span><br><span style="font-size:0.9rem">{end.get('location')}</span></div>""", unsafe_allow_html=True)
 
     with tabs[3]:
         st.error(f"**Cancellation Policy:** {pol.get('cancellation', '-')}")
@@ -359,6 +360,20 @@ def render_output(json_text, url_input=None):
                 st.markdown(f"### 🏢 Merchant: **{merchant_name}**")
                 st.link_button(f"🔎 Competitors", f"https://www.google.com/search?q={urllib.parse.quote('sites like ' + domain)}")
             except: pass
+
+    # --- NEW EMAIL TAB CONTENT ---
+    with tabs[9]:
+        st.header("📧 Draft Supplier Email")
+        st.caption("Use this to request missing info or confirm details with the merchant.")
+        
+        if st.button("📝 Draft Email to Supplier"):
+            keys = get_all_keys()
+            if keys:
+                with st.spinner("Analyzing missing info..."):
+                    email_draft = call_gemini_email_draft(data, keys[0])
+                    st.text_area("Copy this email:", value=email_draft, height=300)
+            else:
+                st.error("No API Keys found.")
 
 # --- SMART ROTATION ---
 def smart_rotation_wrapper(text, keys, tone):
