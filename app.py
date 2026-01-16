@@ -12,6 +12,7 @@ from datetime import datetime
 import sys
 import io
 import zipfile
+import streamlit.components.v1 as components  # Explicit import for components
 
 # --- TRY IMPORTING IMAGE LIBRARY ---
 try:
@@ -150,5 +151,162 @@ def render_floating_window(data):
     inc = data.get("inclusions", {})
     pol = data.get("policies", {})
     
-    # Prepare text for JS (escape quotes)
-    def clean(s): return str(s).replace('
+    # --- FIXED CLEAN FUNCTION (Prevents Syntax Errors) ---
+    def clean(s):
+        text = str(s)
+        text = text.replace('"', '&quot;')  # Escape double quotes
+        text = text.replace("'", "&#39;")   # Escape single quotes
+        text = text.replace("\n", " ")      # Remove newlines
+        return text
+    
+    city = clean(info.get('city_country', ''))
+    name = clean(info.get('main_attractions', ''))
+    desc = clean(info.get('what_to_expect', ''))
+    
+    # Highlights formatting
+    hl_raw = info.get('highlights', [])
+    highlights = "\\n".join([f"• {h}" for h in hl_raw])
+    highlights = clean(highlights)
+
+    # Inclusions formatting
+    inc_raw = inc.get('included', [])
+    inclusions = "\\n".join([f"• {x}" for x in inc_raw])
+    inclusions = clean(inclusions)
+
+    html_code = f"""
+    <div id="floating-helper" style="
+        position: fixed; bottom: 20px; right: 20px; width: 320px;
+        background: white; border-radius: 12px; box-shadow: 0 5px 25px rgba(0,0,0,0.3);
+        z-index: 999999; font-family: sans-serif; border: 2px solid #ff5722;
+        max-height: 80vh; display: flex; flex-direction: column; overflow: hidden;
+    ">
+        <div style="background: #ff5722; color: white; padding: 12px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; cursor: move;">
+            <span>🪄 Magic Float</span>
+            <button onclick="document.getElementById('floating-helper').remove()" style="background:none; border:none; color:white; font-size:18px; cursor:pointer;">&times;</button>
+        </div>
+        <div style="padding: 10px; overflow-y: auto; flex: 1;">
+            
+            <div style="margin-bottom:10px;">
+                <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">CITY</div>
+                <div onclick="navigator.clipboard.writeText('{city}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{city}">
+                    {city} 📋
+                </div>
+            </div>
+
+            <div style="margin-bottom:10px;">
+                <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">NAME</div>
+                <div onclick="navigator.clipboard.writeText('{name}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{name}">
+                    {name} 📋
+                </div>
+            </div>
+
+            <div style="margin-bottom:10px;">
+                <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">HIGHLIGHTS</div>
+                <div onclick="navigator.clipboard.writeText('{highlights}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:pre-wrap; max-height:80px; overflow-y:auto;" title="Click to Copy">
+                    {highlights} 📋
+                </div>
+            </div>
+            
+            <div style="margin-bottom:10px;">
+                <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">DESCRIPTION</div>
+                <div onclick="navigator.clipboard.writeText('{desc}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                    Click to Copy Description 📋
+                </div>
+            </div>
+            
+             <div style="margin-bottom:10px;">
+                <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">INCLUDED</div>
+                <div onclick="navigator.clipboard.writeText('{inclusions}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:pre-wrap; max-height:60px; overflow-y:auto;">
+                    {inclusions} 📋
+                </div>
+            </div>
+
+        </div>
+        <div style="background:#eee; padding:5px; text-align:center; font-size:10px; color:#888;">
+            Click boxes to Copy
+        </div>
+    </div>
+    """
+    components.html(html_code, height=0)
+
+# --- UI RENDERER ---
+def render_output(json_text):
+    if json_text == "429_LIMIT":
+        st.error("⏳ Quota Exceeded."); return
+    if not json_text or "Error" in json_text:
+        st.error(f"⚠️ {json_text}"); return
+
+    clean_text = json_text.strip()
+    if clean_text.startswith("```json"): clean_text = clean_text[7:]
+    if clean_text.endswith("```"): clean_text = clean_text[:-3]
+    
+    try:
+        data = json.loads(clean_text)
+    except:
+        st.warning("⚠️ Formatting Issue.")
+        return
+
+    # --- LAUNCH FLOATING WINDOW BUTTON ---
+    if st.button("🚀 Launch Floating Window"):
+        render_floating_window(data)
+        st.toast("Floating Window Active! Look at bottom-right.", icon="🎈")
+
+    # --- STANDARD TABS ---
+    info = data.get("basic_info", {})
+    st.success(f"✅ Generated: {info.get('main_attractions')}")
+    
+    t1, t2, t3, t4, t5 = st.tabs(["Overview", "Itinerary", "Policies", "Inclusions", "SEO"])
+    
+    with t1:
+        st.code(info.get('city_country'), language="text")
+        st.code(info.get('main_attractions'), language="text")
+        hl_text = "\n".join([f"• {h}" for h in info.get('highlights', [])])
+        st.text_area("Highlights", value=hl_text, height=150)
+        st.text_area("Description", value=info.get('what_to_expect'), height=150)
+
+    with t2:
+        steps = data.get("itinerary", {}).get("steps", [])
+        st.write(steps)
+
+    with t3:
+        st.write(data.get("policies", {}))
+
+    with t4:
+        inc = data.get("inclusions", {})
+        c1, c2 = st.columns(2)
+        with c1: st.write("✅ Included", inc.get("included"))
+        with c2: st.write("❌ Excluded", inc.get("excluded"))
+        
+    with t5:
+        st.code(", ".join(data.get("seo", {}).get("keywords", [])), language="text")
+
+# --- SMART ROTATION ---
+def smart_rotation_wrapper(text, keys, tone):
+    if not keys: return "⚠️ No API keys found."
+    random.shuffle(keys)
+    for key in keys:
+        result = call_gemini_json_summary(text, key, tone)
+        if "Error" not in result: return result
+    return "⚠️ Server Busy."
+
+# --- MAIN APP LOGIC ---
+t1, t2 = st.tabs(["Link Summary", "Text Summary"])
+
+with t1:
+    url = st.text_input("Paste Tour Link")
+    tone_link = st.selectbox("Tone", ["Standard (Neutral)", "Exciting (Marketing Hype)", "Professional (Corporate)"], key="t1")
+    if st.button("Generate from Link"):
+        keys = get_all_keys()
+        if keys and url:
+            text = extract_text_from_url(url)
+            result = smart_rotation_wrapper(text, keys, tone_link)
+            render_output(result)
+
+with t2:
+    raw = st.text_area("Paste Text")
+    tone_text = st.selectbox("Tone", ["Standard (Neutral)", "Exciting (Marketing Hype)", "Professional (Corporate)"], key="t2")
+    if st.button("Generate from Text"):
+        keys = get_all_keys()
+        if keys and len(raw) > 50:
+            result = smart_rotation_wrapper(raw, keys, tone_text)
+            render_output(result)
