@@ -31,7 +31,6 @@ hide_st_style = """
             .stCodeBlock { margin-bottom: 0px !important; }
             div[data-testid="stSidebarUserContent"] { padding-top: 2rem; }
             
-            /* TIMELINE CSS */
             .timeline-step {
                 padding: 10px;
                 margin-bottom: 10px;
@@ -47,6 +46,12 @@ hide_st_style = """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
 st.title("⭐ Klook Western Magic Tool")
+
+# --- SESSION STATE INITIALIZATION (THE FIX) ---
+if 'gen_result' not in st.session_state:
+    st.session_state['gen_result'] = None
+if 'url_input' not in st.session_state:
+    st.session_state['url_input'] = None
 
 # --- LOAD KEYS ---
 def get_all_keys():
@@ -366,6 +371,7 @@ def render_output(json_text, url_input=None):
         st.header("📧 Draft Supplier Email")
         st.caption("Use this to request missing info or confirm details with the merchant.")
         
+        # State-Aware Button Logic
         if st.button("📝 Draft Email to Supplier"):
             keys = get_all_keys()
             if keys:
@@ -412,12 +418,17 @@ with t1:
             status.write(f"✅ Scraped {len(text)} chars. Calling AI ({tone_link})...")
             result = smart_rotation_wrapper(text, keys, tone_link)
             
+            # --- SAVE TO SESSION STATE ---
+            if "Busy" not in result and "Error" not in result:
+                st.session_state['gen_result'] = result
+                st.session_state['url_input'] = url
+            
             if "Busy" in result or "Error" in result:
                 status.update(label="❌ AI Failed", state="error")
                 st.error(result)
             else:
                 status.update(label="✅ Complete!", state="complete")
-                render_output(result, url_input=url)
+                # Removed direct render call to prevent duplicates
 
 with t2:
     raw_text = st.text_area("Paste Tour Text")
@@ -428,7 +439,11 @@ with t2:
         if len(raw_text) < 50: st.error("❌ Text too short"); st.stop()
         st.info(f"🚀 Processing with {tone_text} tone...")
         result = smart_rotation_wrapper(raw_text, keys, tone_text)
-        render_output(result)
+        
+        # --- SAVE TO SESSION STATE ---
+        if "Busy" not in result and "Error" not in result:
+            st.session_state['gen_result'] = result
+            st.session_state['url_input'] = None
 
 with t3:
     st.info("Upload photos to resize to **8:5 (1280x800)**")
@@ -457,3 +472,7 @@ with t3:
                         c2.text_area(f"Caption: {f.name}", value=caption, height=70)
             st.success("✅ Done!")
             st.download_button("⬇️ Download ZIP", zip_buf.getvalue(), "images.zip", "application/zip")
+
+# --- ALWAYS RENDER IF DATA EXISTS (PERSISTENCE) ---
+if st.session_state['gen_result']:
+    render_output(st.session_state['gen_result'], st.session_state['url_input'])
