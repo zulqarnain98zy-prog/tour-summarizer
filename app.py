@@ -272,8 +272,8 @@ def render_output(json_text, url_input=None):
     # --- MAIN PAGE ---
     st.success("✅ Analysis Complete! Use the Sidebar 👈 to copy-paste.")
     
-    # TABS
-    tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Klook Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis", "📧 Supplier Email"]
+    # TABS (Added "🔧 Automation" tab)
+    tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Klook Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis", "📧 Supplier Email", "🔧 Automation"]
     tabs = st.tabs(tab_names)
 
     with tabs[0]:
@@ -394,6 +394,12 @@ def render_output(json_text, url_input=None):
                     st.text_area("Copy this email:", value=email_draft, height=300)
             else:
                 st.error("No API Keys found.")
+    
+    # --- AUTOMATION TAB (NEW) ---
+    with tabs[10]:
+        st.header("🔧 Automation Data")
+        st.info("Copy this raw JSON block. You can feed this into a Tampermonkey Script to auto-fill the Klook Backend.")
+        st.code(json.dumps(data, indent=4), language="json")
 
 # --- SMART ROTATION ---
 def smart_rotation_wrapper(text, keys):
