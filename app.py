@@ -22,7 +22,7 @@ except ImportError:
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Klook Magic Tool", page_icon="⭐", layout="wide")
 
-# --- HIDE STREAMLIT BRANDING & TWEAK UI ---
+# --- HIDE STREAMLIT BRANDING ---
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -95,7 +95,7 @@ def sanitize_text(text):
     text = text.encode('utf-8', 'ignore').decode('utf-8')
     return text.replace("\\", "\\\\")[:25000]
 
-# --- GEMINI CALLS (WITH TONE) ---
+# --- GEMINI CALLS ---
 def call_gemini_json_summary(text, api_key, tone="Standard"):
     model_name = get_working_model_name(api_key)
     if not model_name: return "Error: No available Gemini models found."
@@ -109,7 +109,6 @@ def call_gemini_json_summary(text, api_key, tone="Standard"):
         "Professional (Corporate)": "Use a formal, polished, and premium tone. Focus on reliability, comfort, and service quality. Avoid slang.",
         "Casual (Friendly)": "Use a warm, conversational, and inviting tone. Address the user as 'you'. Use contractions (e.g., 'You'll love' instead of 'Guests will enjoy')."
     }
-    
     selected_tone_instruction = tone_instructions.get(tone, tone_instructions["Standard (Neutral)"])
 
     intro_prompt = f"""
@@ -190,7 +189,7 @@ def render_output(json_text, url_input=None):
         st.code(json_text)
         return
 
-    # --- SIDEBAR: THE COPY ASSISTANT ---
+    # --- SIDEBAR: COPY ASSISTANT ---
     with st.sidebar:
         st.header("📋 Quick Copy Dashboard")
         st.info("Click the copy icon 📄 on the top-right of each box.")
@@ -204,19 +203,19 @@ def render_output(json_text, url_input=None):
         copy_box("📍 Departure City", info.get('city_country'))
         copy_box("🏷️ Activity Name", info.get('main_attractions'))
         
-        # Format Highlights
+        # Highlights Formatting
         hl_list = info.get('highlights', [])
         hl_text = "\n".join([f"• {h}" for h in hl_list])
         copy_box("✨ Highlights", hl_text)
         
         copy_box("📝 Description", info.get('what_to_expect'))
         
-        # Format Inclusions
+        # Inclusions Formatting
         inc_list = inc.get('included', [])
         inc_text = "\n".join([f"• {x}" for x in inc_list])
         copy_box("✅ Included", inc_text)
 
-        # Format Exclusions
+        # Exclusions Formatting
         exc_list = inc.get('excluded', [])
         exc_text = "\n".join([f"• {x}" for x in exc_list])
         copy_box("❌ Excluded", exc_text)
@@ -230,7 +229,7 @@ def render_output(json_text, url_input=None):
         st.divider()
         st.caption("Scroll main page for full analysis details ->")
 
-    # --- MAIN PAGE: VISUAL TABS ---
+    # --- MAIN PAGE: 9 TABS (RESTORED) ---
     st.success("✅ Analysis Complete! Use the Sidebar 👈 to copy-paste.")
     
     tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis"]
@@ -275,9 +274,13 @@ def render_output(json_text, url_input=None):
     with tabs[6]: st.code(str(seo.get("keywords")))
     with tabs[7]: st.write(data.get("pricing", {}).get("details"))
     
+    # --- RESTORED ANALYSIS BUTTONS ---
     with tabs[8]: 
         an = data.get("analysis", {})
         search_term = an.get("ota_search_term", "")
+        if not search_term: 
+            search_term = info.get('main_attractions', '') # Fallback
+
         st.write(f"**OTA Search Term:** `{search_term}`")
         if search_term:
             encoded_term = urllib.parse.quote(search_term)
@@ -296,7 +299,7 @@ def render_output(json_text, url_input=None):
                 st.link_button(f"🔎 Competitors", f"https://www.google.com/search?q={urllib.parse.quote('sites like ' + domain)}")
             except: pass
 
-# --- SMART ROTATION (WITH TONE) ---
+# --- SMART ROTATION ---
 def smart_rotation_wrapper(text, keys, tone):
     if not keys: return "⚠️ No API keys found."
     random.shuffle(keys)
@@ -316,13 +319,7 @@ t1, t2, t3 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "🖼️ Phot
 # TAB 1: LINK
 with t1:
     url = st.text_input("Paste Tour Link")
-    
-    # --- TONE SELECTOR ---
-    tone_link = st.selectbox(
-        "✍️ Select Tone", 
-        ["Standard (Neutral)", "Exciting (Marketing Hype)", "Professional (Corporate)", "Casual (Friendly)"],
-        key="tone_link"
-    )
+    tone_link = st.selectbox("Tone", ["Standard (Neutral)", "Exciting (Marketing Hype)", "Professional (Corporate)", "Casual (Friendly)"], key="tone_link")
     
     if st.button("Generate from Link"):
         keys = get_all_keys()
@@ -350,13 +347,7 @@ with t1:
 # TAB 2: TEXT
 with t2:
     raw_text = st.text_area("Paste Tour Text")
-    
-    # --- TONE SELECTOR ---
-    tone_text = st.selectbox(
-        "✍️ Select Tone", 
-        ["Standard (Neutral)", "Exciting (Marketing Hype)", "Professional (Corporate)", "Casual (Friendly)"],
-        key="tone_text"
-    )
+    tone_text = st.selectbox("Tone", ["Standard (Neutral)", "Exciting (Marketing Hype)", "Professional (Corporate)", "Casual (Friendly)"], key="tone_text")
     
     if st.button("Generate from Text"):
         keys = get_all_keys()
@@ -367,7 +358,7 @@ with t2:
         result = smart_rotation_wrapper(raw_text, keys, tone_text)
         render_output(result)
 
-# TAB 3: PHOTOS (Restored!)
+# TAB 3: PHOTOS (RESTORED)
 with t3:
     st.info("Upload photos to resize to **8:5 (1280x800)**")
     enable_captions = st.checkbox("☑️ Generate AI Captions", value=True)
