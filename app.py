@@ -12,7 +12,7 @@ from datetime import datetime
 import sys
 import io
 import zipfile
-import streamlit.components.v1 as components  # Explicit import for components
+import streamlit.components.v1 as components
 
 # --- TRY IMPORTING IMAGE LIBRARY ---
 try:
@@ -62,6 +62,19 @@ def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
     except Exception as e:
         return None, f"Error processing image: {e}"
 
+# --- GEMINI CAPTION LOGIC ---
+def call_gemini_caption(image_bytes, api_key):
+    # Reuse the same model finder
+    model_name = get_working_model_name(api_key)
+    if not model_name: return "Error: No Model"
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name)
+    prompt = "Write a captivating social media caption (10-12 words, experiential verb start, no emojis)."
+    try:
+        response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
+        return response.text
+    except: return "Caption Failed"
+
 # --- SCRAPER ---
 @st.cache_data(ttl=86400, show_spinner=False)
 def extract_text_from_url(url):
@@ -101,7 +114,6 @@ def call_gemini_json_summary(text, api_key, tone="Standard"):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
-    # TONE MAP
     tone_instructions = {
         "Standard (Neutral)": "Use a clear, factual, and balanced tone.",
         "Exciting (Marketing Hype)": "Use an energetic, persuasive tone. Use power words.",
@@ -145,30 +157,27 @@ def call_gemini_json_summary(text, api_key, tone="Standard"):
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
 
-# --- FLOATING WINDOW INJECTOR (THE MAGIC) ---
+# --- FLOATING WINDOW INJECTOR ---
 def render_floating_window(data):
     info = data.get("basic_info", {})
     inc = data.get("inclusions", {})
-    pol = data.get("policies", {})
     
-    # --- FIXED CLEAN FUNCTION (Prevents Syntax Errors) ---
+    # Safe cleaning function (Split into lines to avoid syntax errors)
     def clean(s):
         text = str(s)
-        text = text.replace('"', '&quot;')  # Escape double quotes
-        text = text.replace("'", "&#39;")   # Escape single quotes
-        text = text.replace("\n", " ")      # Remove newlines
+        text = text.replace('"', '&quot;')
+        text = text.replace("'", "&#39;")
+        text = text.replace("\n", " ")
         return text
     
     city = clean(info.get('city_country', ''))
     name = clean(info.get('main_attractions', ''))
     desc = clean(info.get('what_to_expect', ''))
     
-    # Highlights formatting
     hl_raw = info.get('highlights', [])
     highlights = "\\n".join([f"• {h}" for h in hl_raw])
     highlights = clean(highlights)
 
-    # Inclusions formatting
     inc_raw = inc.get('included', [])
     inclusions = "\\n".join([f"• {x}" for x in inc_raw])
     inclusions = clean(inclusions)
@@ -188,43 +197,30 @@ def render_floating_window(data):
             
             <div style="margin-bottom:10px;">
                 <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">CITY</div>
-                <div onclick="navigator.clipboard.writeText('{city}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{city}">
-                    {city} 📋
-                </div>
+                <div onclick="navigator.clipboard.writeText('{city}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{city}">{city} 📋</div>
             </div>
 
             <div style="margin-bottom:10px;">
                 <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">NAME</div>
-                <div onclick="navigator.clipboard.writeText('{name}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{name}">
-                    {name} 📋
-                </div>
+                <div onclick="navigator.clipboard.writeText('{name}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="{name}">{name} 📋</div>
             </div>
 
             <div style="margin-bottom:10px;">
                 <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">HIGHLIGHTS</div>
-                <div onclick="navigator.clipboard.writeText('{highlights}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:pre-wrap; max-height:80px; overflow-y:auto;" title="Click to Copy">
-                    {highlights} 📋
-                </div>
+                <div onclick="navigator.clipboard.writeText('{highlights}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:pre-wrap; max-height:80px; overflow-y:auto;" title="Click to Copy">{highlights} 📋</div>
             </div>
             
             <div style="margin-bottom:10px;">
                 <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">DESCRIPTION</div>
-                <div onclick="navigator.clipboard.writeText('{desc}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                    Click to Copy Description 📋
-                </div>
+                <div onclick="navigator.clipboard.writeText('{desc}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Click to Copy Description 📋</div>
             </div>
             
-             <div style="margin-bottom:10px;">
+            <div style="margin-bottom:10px;">
                 <div style="font-size:10px; color:#666; font-weight:bold; margin-bottom:2px;">INCLUDED</div>
-                <div onclick="navigator.clipboard.writeText('{inclusions}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:pre-wrap; max-height:60px; overflow-y:auto;">
-                    {inclusions} 📋
-                </div>
+                <div onclick="navigator.clipboard.writeText('{inclusions}')" style="background:#f5f5f5; padding:8px; border-radius:4px; font-size:12px; cursor:pointer; border:1px solid #ddd; white-space:pre-wrap; max-height:60px; overflow-y:auto;">{inclusions} 📋</div>
             </div>
-
         </div>
-        <div style="background:#eee; padding:5px; text-align:center; font-size:10px; color:#888;">
-            Click boxes to Copy
-        </div>
+        <div style="background:#eee; padding:5px; text-align:center; font-size:10px; color:#888;">Click boxes to Copy</div>
     </div>
     """
     components.html(html_code, height=0)
@@ -246,36 +242,48 @@ def render_output(json_text):
         st.warning("⚠️ Formatting Issue.")
         return
 
-    # --- LAUNCH FLOATING WINDOW BUTTON ---
+    # FLOATING WINDOW BUTTON
     if st.button("🚀 Launch Floating Window"):
         render_floating_window(data)
-        st.toast("Floating Window Active! Look at bottom-right.", icon="🎈")
+        st.toast("Floating Window Active!", icon="🎈")
 
-    # --- STANDARD TABS ---
     info = data.get("basic_info", {})
     st.success(f"✅ Generated: {info.get('main_attractions')}")
     
     t1, t2, t3, t4, t5 = st.tabs(["Overview", "Itinerary", "Policies", "Inclusions", "SEO"])
     
     with t1:
+        st.caption("City & Country")
         st.code(info.get('city_country'), language="text")
+        st.caption("Activity Name")
         st.code(info.get('main_attractions'), language="text")
+        
+        st.caption("Highlights")
         hl_text = "\n".join([f"• {h}" for h in info.get('highlights', [])])
         st.text_area("Highlights", value=hl_text, height=150)
+        
+        st.caption("Description")
         st.text_area("Description", value=info.get('what_to_expect'), height=150)
 
     with t2:
         steps = data.get("itinerary", {}).get("steps", [])
-        st.write(steps)
+        for step in steps: st.write(f"📍 {step}")
 
     with t3:
-        st.write(data.get("policies", {}))
+        pol = data.get("policies", {})
+        st.write(f"**Cancellation:** {pol.get('cancellation')}")
+        st.write(f"**Contact:** {pol.get('merchant_contact')}")
 
+    # FIX: Clean Bullet Points for Inclusions (No more raw JSON)
     with t4:
         inc = data.get("inclusions", {})
         c1, c2 = st.columns(2)
-        with c1: st.write("✅ Included", inc.get("included"))
-        with c2: st.write("❌ Excluded", inc.get("excluded"))
+        with c1: 
+            st.write("✅ **Included**")
+            for x in inc.get("included", []): st.write(f"- {x}")
+        with c2: 
+            st.write("❌ **Excluded**")
+            for x in inc.get("excluded", []): st.write(f"- {x}")
         
     with t5:
         st.code(", ".join(data.get("seo", {}).get("keywords", [])), language="text")
@@ -290,7 +298,7 @@ def smart_rotation_wrapper(text, keys, tone):
     return "⚠️ Server Busy."
 
 # --- MAIN APP LOGIC ---
-t1, t2 = st.tabs(["Link Summary", "Text Summary"])
+t1, t2, t3 = st.tabs(["Link Summary", "Text Summary", "🖼️ Photo Resizer"])
 
 with t1:
     url = st.text_input("Paste Tour Link")
@@ -310,3 +318,36 @@ with t2:
         if keys and len(raw) > 50:
             result = smart_rotation_wrapper(raw, keys, tone_text)
             render_output(result)
+
+# RESTORED PHOTO RESIZER
+with t3:
+    st.info("Upload photos to resize to **8:5 (1280x800)**")
+    enable_captions = st.checkbox("☑️ Generate AI Captions", value=True)
+    c_align = st.selectbox("Crop Focus", ["Center", "Top", "Bottom", "Left", "Right"])
+    align_map = {"Center":(0.5,0.5), "Top":(0.5,0.0), "Bottom":(0.5,1.0), "Left":(0.0,0.5), "Right":(1.0,0.5)}
+    
+    files = st.file_uploader("Upload", accept_multiple_files=True, type=['jpg','png','jpeg'])
+    
+    if files:
+        keys = get_all_keys()
+        if st.button("Process Images"):
+            zip_buf = io.BytesIO()
+            with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                prog_bar = st.progress(0)
+                total_files = len(files)
+                for i, f in enumerate(files):
+                    prog_bar.progress((i + 1) / total_files)
+                    b_img, err = resize_image_klook_standard(f, align_map[c_align])
+                    if b_img:
+                        zf.writestr(f"resized_{f.name}", b_img)
+                        c1, c2 = st.columns([1,3])
+                        c1.image(b_img, width=150)
+                        
+                        caption = "AI Disabled"
+                        if enable_captions and keys:
+                            caption = call_gemini_caption(b_img, random.choice(keys))
+                        
+                        c2.text_area(f"Caption: {f.name}", value=caption, height=70)
+            
+            st.success("✅ Done!")
+            st.download_button("⬇️ Download ZIP", zip_buf.getvalue(), "images.zip", "application/zip")
