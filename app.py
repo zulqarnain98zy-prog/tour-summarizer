@@ -257,7 +257,7 @@ def render_output(json_text, url_input=None):
         st.code(json_text)
         return
         
-    # --- DEFINE VARIABLES FIRST (FIXED CRASH) ---
+    # --- DEFINE VARIABLES FIRST ---
     info = data.get("basic_info", {})
     inc = data.get("inclusions", {})
     pol = data.get("policies", {})
@@ -457,14 +457,17 @@ with t2:
         if "Busy" not in result and "Error" not in result:
             st.session_state['gen_result'] = result
 
+# --- PHOTO RESIZER TAB (FIXED INTERACTIVE MODE) ---
 with t3:
     st.info("Upload photos OR use photos scraped from the link.")
     enable_captions = st.checkbox("☑️ Generate AI Captions", value=True)
     c_align = st.selectbox("Crop Focus", ["Center", "Top", "Bottom", "Left", "Right"])
     align_map = {"Center":(0.5,0.5), "Top":(0.5,0.0), "Bottom":(0.5,1.0), "Left":(0.0,0.5), "Right":(1.0,0.5)}
     
+    # 1. FILE UPLOADER
     files = st.file_uploader("Upload Files", accept_multiple_files=True, type=['jpg','png','jpeg'])
     
+    # 2. SCRAPED IMAGES SELECTOR
     selected_scraped = []
     if st.session_state['scraped_images']:
         st.divider()
@@ -478,43 +481,65 @@ with t3:
 
     if st.button("Process Selected Images"):
         keys = get_all_keys()
-        zip_buf = io.BytesIO()
         total_items = (files if files else []) + selected_scraped
         
         if not total_items:
             st.warning("⚠️ No images selected.")
         else:
+            # We will build the ZIP file in memory at the end
+            zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                prog_bar = st.progress(0)
                 
-                if files:
-                    for i, f in enumerate(files):
-                        b_img, err = resize_image_klook_standard(f, align_map[c_align])
-                        if b_img:
-                            zf.writestr(f"resized_{f.name}", b_img)
-                            caption = call_gemini_caption(b_img, random.choice(keys)) if enable_captions and keys else ""
-                            st.write(f"✅ {f.name} - {caption}")
-
-                if selected_scraped:
-                    st.write("--- Processing Web Images ---")
-                    headers = {'User-Agent': 'Mozilla/5.0'}
-                    for i, url in enumerate(selected_scraped):
+                # PROCESSING LOOP
+                prog_bar = st.progress(0)
+                total_count = len(total_items)
+                
+                for idx, item in enumerate(total_items):
+                    prog_bar.progress((idx + 1) / total_count)
+                    
+                    # A. Handle FileUpload
+                    if hasattr(item, 'read'): # It's a Streamlit file
+                        fname = item.name
+                        b_img, err = resize_image_klook_standard(item, align_map[c_align])
+                    
+                    # B. Handle Scraped URL
+                    else:
+                        fname = f"web_image_{idx}.jpg"
                         try:
-                            resp = requests.get(url, headers=headers, timeout=10)
-                            if resp.status_code == 200:
-                                b_img, err = resize_image_klook_standard(resp.content, align_map[c_align])
-                                if b_img:
-                                    fname = f"web_image_{i}.jpg"
-                                    zf.writestr(fname, b_img)
-                                    caption = call_gemini_caption(b_img, random.choice(keys)) if enable_captions and keys else ""
-                                    st.write(f"✅ {fname} - {caption}")
-                        except Exception as e:
-                            st.error(f"Failed to download {url}: {e}")
+                            headers = {'User-Agent': 'Mozilla/5.0'}
+                            resp = requests.get(item, headers=headers, timeout=10)
+                            b_img, err = resize_image_klook_standard(resp.content, align_map[c_align])
+                        except: b_img = None
+                    
+                    # C. RENDER RESULT ROW
+                    if b_img:
+                        # 1. Add to ZIP
+                        zf.writestr(f"resized_{fname}", b_img)
+                        
+                        # 2. Show UI Row
+                        c1, c2 = st.columns([1, 2])
+                        with c1:
+                            st.image(b_img, caption=fname, use_column_width=True)
+                        with c2:
+                            # Generate Caption?
+                            caption_text = ""
+                            if enable_captions and keys:
+                                caption_text = call_gemini_caption(b_img, random.choice(keys))
+                            
+                            st.text_area(f"Caption for {fname}", value=caption_text, height=100)
+                            
+                            # Individual Download
+                            st.download_button(
+                                label=f"⬇️ Download {fname}",
+                                data=b_img,
+                                file_name=f"resized_{fname}",
+                                mime="image/jpeg"
+                            )
+                        st.divider()
 
-                prog_bar.progress(100)
-            
-            st.success("✅ Done!")
-            st.download_button("⬇️ Download ZIP", zip_buf.getvalue(), "klook_images.zip", "application/zip")
+            # GLOBAL DOWNLOAD
+            st.success("✅ All images processed!")
+            st.download_button("⬇️ Download All (ZIP)", zip_buf.getvalue(), "klook_images.zip", "application/zip")
 
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
