@@ -5,6 +5,7 @@ import random
 import re
 import urllib.parse
 import json
+import requests
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, NotFound, InvalidArgument
@@ -52,6 +53,8 @@ if 'gen_result' not in st.session_state:
     st.session_state['gen_result'] = None
 if 'url_input' not in st.session_state:
     st.session_state['url_input'] = None
+if 'scraped_images' not in st.session_state:
+    st.session_state['scraped_images'] = []
 
 # --- LOAD KEYS ---
 def get_all_keys():
@@ -63,45 +66,66 @@ def get_all_keys():
         return []
 
 # --- IMAGE RESIZING LOGIC ---
-def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
+def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
     if Image is None: return None, "⚠️ Error: 'Pillow' library missing."
     try:
-        img = Image.open(uploaded_file)
+        # Handle both FileUpload objects and downloaded bytes
+        if isinstance(image_input, bytes):
+            img = Image.open(io.BytesIO(image_input))
+        else:
+            img = Image.open(image_input)
+            
         target_width = 1280
         target_height = 800
         img_resized = ImageOps.fit(img, (target_width, target_height), method=Image.Resampling.LANCZOS, centering=alignment)
         buf = io.BytesIO()
         img_format = img.format if img.format else 'JPEG'
-        if img_resized.mode == 'RGBA' and img_format == 'JPEG':
+        # Convert RGBA to RGB for JPEGs
+        if img_resized.mode == 'RGBA' and img_format.upper() == 'JPEG':
             img_resized = img_resized.convert('RGB')
         img_resized.save(buf, format=img_format, quality=90)
         return buf.getvalue(), None
     except Exception as e:
         return None, f"Error processing image: {e}"
 
-# --- SCRAPER (EXTENDED LIMIT) ---
-@st.cache_data(ttl=86400, show_spinner=False)
-def extract_text_from_url(url):
+# --- SCRAPER (TEXT + IMAGES) ---
+@st.cache_data(ttl=3600, show_spinner=False)
+def extract_data_from_url(url):
     try:
         scraper = cloudscraper.create_scraper(browser='chrome')
         response = scraper.get(url, timeout=20)
-        if response.status_code != 200: return f"ERROR: Status Code {response.status_code}"
+        if response.status_code != 200: return None, f"ERROR: Status Code {response.status_code}"
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        # Only remove truly useless stuff
+        # 1. EXTRACT IMAGES (Before deleting scripts)
+        found_images = []
+        for img in soup.find_all('img'):
+            src = img.get('src')
+            if src:
+                # Resolve relative URLs
+                if src.startswith('//'): src = 'https:' + src
+                elif src.startswith('/'): src = urllib.parse.urljoin(url, src)
+                
+                # Filter out likely icons/logos based on keywords
+                if not any(x in src.lower() for x in ['logo', 'icon', 'avatar', 'svg', 'blank', 'transparent']):
+                    if src not in found_images:
+                        found_images.append(src)
+        
+        # Limit to top 15 images to save memory
+        found_images = found_images[:15]
+
+        # 2. EXTRACT TEXT
         for script in soup(["script", "style", "noscript", "svg"]): 
             script.extract()
             
-        # Get text with clear separation
         text = soup.get_text(separator=' \n ')
-        
-        # Clean up whitespace
         lines = (line.strip() for line in text.splitlines())
+        clean_text = '\n'.join(line for line in lines if line)[:100000] 
         
-        # INCREASED LIMIT TO 100,000 CHARACTERS
-        return '\n'.join(line for line in lines if line)[:100000] 
-    except Exception as e: return f"ERROR: {str(e)}"
+        return {"text": clean_text, "images": found_images}, None
+
+    except Exception as e: return None, f"ERROR: {str(e)}"
 
 # --- SMART MODEL FINDER ---
 def get_working_model_name(api_key):
@@ -119,9 +143,9 @@ def get_working_model_name(api_key):
 def sanitize_text(text):
     if not text: return ""
     text = text.encode('utf-8', 'ignore').decode('utf-8')
-    return text.replace("\\", "\\\\")[:95000] # Increased input limit for AI
+    return text.replace("\\", "\\\\")[:95000]
 
-# --- GEMINI CALLS (FAQ FIX) ---
+# --- GEMINI CALLS (UPDATED PROMPT FOR PHONE) ---
 def call_gemini_json_summary(text, api_key):
     model_name = get_working_model_name(api_key)
     if not model_name: return "Error: No available Gemini models found."
@@ -136,33 +160,34 @@ def call_gemini_json_summary(text, api_key):
     1. **Highlights:** Exactly **4-5 bullet points**. Each point **10-12 words**. No full stops.
     2. **What to Expect:** Single paragraph (**100-120 words**).
     3. **Policies:** Bullet points.
-    4. **FAQ:** Look for "Q&A" or "FAQ" headers. If found, combine the Question AND the Answer into a single paragraph or a list of "Q: ... A: ..." pairs. **Do not just list the questions.** If answers are missing in the text, skip the question.
-    5. **Output:** ONLY raw JSON.
+    4. **FAQ:** Look for "Q&A" or "FAQ" headers. Combine Q&A into a single paragraph or "Q: ... A: ..." list.
+    5. **PHONE NUMBER:** For 'merchant_contact', you MUST format it as **+X-XXX-XXX-XXXX**. 
+       - If the text has a local number (e.g. '03-9283...'), detect the country from the tour location and add the correct Country Code (e.g. Malaysia = +60, USA = +1, Australia = +61). 
+       - Do not leave it as a local number.
+    6. **Output:** ONLY raw JSON.
     
     **REQUIRED JSON STRUCTURE:**
     {{
         "basic_info": {{
             "city_country": "City, Country",
             "group_type": "Private/Join-in",
-            "duration": "Duration (e.g. 8 hours)",
+            "duration": "Duration",
             "main_attractions": "Tour Name",
             "highlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],
-            "what_to_expect": "Single paragraph (100-120 words).",
+            "what_to_expect": "Single paragraph.",
             "selling_points": ["Tag 1", "Tag 2"]
         }},
         "klook_itinerary": {{
             "start": {{ "time": "09:00", "location": "Meeting Point Name" }},
             "segments": [
-                {{ "type": "Attraction", "time": "10:00", "name": "Eiffel Tower", "details": "Visit the summit", "location_search": "Eiffel Tower Paris" }},
-                {{ "type": "Transport", "time": "12:00", "name": "Bus Transfer", "details": "Travel to Versailles (1 hour)" }},
-                {{ "type": "Meal", "time": "13:00", "name": "Lunch", "details": "Local bistro lunch included" }}
+                {{ "type": "Attraction", "time": "10:00", "name": "Name", "details": "Details", "location_search": "Search Term" }}
             ],
-            "end": {{ "time": "17:00", "location": "Drop off location" }}
+            "end": {{ "time": "17:00", "location": "Drop off" }}
         }},
-        "policies": {{ "cancellation": "Policy text", "merchant_contact": "Contact" }},
-        "inclusions": {{ "included": ["Item 1 (No period)", "Item 2 (No period)"], "excluded": ["Item 3 (No period)"] }},
-        "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": ["Q: Question? A: Answer."] }},
-        "seo": {{ "keywords": ["Key 1", "Key 2"] }},
+        "policies": {{ "cancellation": "Policy", "merchant_contact": "+X-XXX-XXX-XXXX" }},
+        "inclusions": {{ "included": ["Item 1"], "excluded": ["Item 2"] }},
+        "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": ["FAQ content"] }},
+        "seo": {{ "keywords": ["Key 1"] }},
         "pricing": {{ "details": "Price info" }},
         "analysis": {{ "ota_search_term": "Product Name" }}
     }}
@@ -179,23 +204,7 @@ def call_gemini_email_draft(json_data, api_key):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
-    
-    prompt = f"""
-    You are a Klook Onboarding Specialist. 
-    **TASK:** Draft a polite, professional email to the Merchant (Supplier) requesting missing information.
-    
-    **CRITICAL REQUIREMENTS:**
-    1. **Mandatory Checks:** ALWAYS ask them to verify the final **Pricing** and the exact **Duration**.
-    2. **Missing Info:** Ask about null/empty fields or vague info (e.g. "TBC").
-    3. **Nature of Activity:** - Water: Ask about weather/safety.
-       - Food: Ask about diet.
-       - Transport: Ask about luggage/waiting.
-       - Adventure: Ask about age/weight.
-    4. **Format:** Concise bulleted list.
-    
-    **INPUT DATA:**
-    {json.dumps(json_data)}
-    """
+    prompt = f"Draft a professional Klook supplier email based on this data. Ask for missing info. Data: {json.dumps(json_data)}"
     try:
         response = model.generate_content(prompt)
         return response.text
@@ -239,16 +248,15 @@ def render_output(json_text, url_input=None):
 
     # --- SIDEBAR ---
     with st.sidebar:
-        st.header("📋 Quick Copy Dashboard")
-        st.info("Click the copy icon 📄 on the top-right of each box.")
+        st.header("📋 Copy Dashboard")
         
         info = data.get("basic_info", {})
         inc = data.get("inclusions", {})
         pol = data.get("policies", {})
         seo = data.get("seo", {})
 
-        copy_box("📍 Departure City", info.get('city_country'))
-        copy_box("🏷️ Activity Name", info.get('main_attractions'))
+        copy_box("📍 Location", info.get('city_country'))
+        copy_box("🏷️ Name", info.get('main_attractions'))
         
         hl_list = info.get('highlights', [])
         hl_text = "\n".join([f"• {h}" for h in hl_list])
@@ -260,19 +268,15 @@ def render_output(json_text, url_input=None):
         inc_text = "\n".join([f"• {x}" for x in inc_list])
         copy_box("✅ Included", inc_text)
 
-        exc_list = inc.get('excluded', [])
-        exc_text = "\n".join([f"• {x}" for x in exc_list])
-        copy_box("❌ Excluded", exc_text)
+        copy_box("❌ Excluded", "\n".join([f"• {x}" for x in inc.get('excluded', [])]))
+        copy_box("📞 Phone", pol.get('merchant_contact'))
         
-        kw_list = seo.get('keywords', [])
-        copy_box("🔍 SEO Keywords", ", ".join(kw_list))
-
         st.divider()
 
     # --- MAIN PAGE ---
     st.success("✅ Analysis Complete! Use the Sidebar 👈 to copy-paste.")
     
-    # TABS (Added "🔧 Automation" tab)
+    # TABS
     tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Klook Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis", "📧 Supplier Email", "🔧 Automation"]
     tabs = st.tabs(tab_names)
 
@@ -312,19 +316,11 @@ def render_output(json_text, url_input=None):
             sName = seg.get('name', 'Activity')
             sTime = seg.get('time', '')
             sDet = seg.get('details', '')
-            sLoc = seg.get('location_search', '')
             icon = "🎡"
             color = "#ff5722"
             if "Transport" in sType: icon="🚌"; color="#2196F3"
             if "Meal" in sType: icon="🍽️"; color="#9C27B0"
-            
-            map_btn = ""
-            if sLoc:
-                query = urllib.parse.quote(sLoc)
-                link = f"https://www.google.com/maps/search/?api=1&query={query}"
-                map_btn = f' | <a href="{link}" target="_blank" style="text-decoration:none;">📍 Map</a>'
-
-            st.markdown(f"""<div class="timeline-step" style="border-left-color: {color};"><span class="timeline-time">{sTime}</span> <br><span class="timeline-title">{icon} {sType}: {sName}</span> {map_btn}<br><span style="font-size:0.9rem; color:#666;">{sDet}</span></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div class="timeline-step" style="border-left-color: {color};"><span class="timeline-time">{sTime}</span> <br><span class="timeline-title">{icon} {sType}: {sName}</span><br><span style="font-size:0.9rem; color:#666;">{sDet}</span></div>""", unsafe_allow_html=True)
 
         st.markdown(f"""<div class="timeline-step" style="border-left-color: #F44336;"><span class="timeline-time">{end.get('time')}</span><br><span class="timeline-title">🏁 Return Info</span><br><span style="font-size:0.9rem">{end.get('location')}</span></div>""", unsafe_allow_html=True)
 
@@ -346,59 +342,28 @@ def render_output(json_text, url_input=None):
         st.write(f"**Child:** {res.get('child_policy')}")
         st.write(f"**Accessibility:** {res.get('accessibility')}")
         
-        # FAQ RENDERER
         faq = res.get('faq')
         with st.expander("View FAQ", expanded=True):
             if isinstance(faq, list):
-                # Clean list display
                 for f in faq: st.write(f"- {f}")
             else:
                 st.info(faq or 'No FAQ found.')
 
     with tabs[6]: st.code(str(seo.get("keywords")))
     with tabs[7]: st.write(data.get("pricing", {}).get("details"))
-    
-    with tabs[8]: 
-        an = data.get("analysis", {})
-        search_term = an.get("ota_search_term", "")
-        if not search_term: search_term = info.get('main_attractions', '')
-        
-        st.write(f"**OTA Search Term:** `{search_term}`")
-        if search_term:
-            encoded_term = urllib.parse.quote(search_term)
-            st.markdown("### 🔎 Find Similar Products")
-            c1, c2, c3 = st.columns(3)
-            with c1: st.link_button("🟢 Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
-            with c2: st.link_button("🔵 GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
-            with c3: st.link_button("🟠 Klook", f"https://www.google.com/search?q={urllib.parse.quote('site:klook.com ' + search_term)}")
-        
-        if url_input:
-            try:
-                domain = urllib.parse.urlparse(url_input).netloc.replace("www.", "")
-                merchant_name = domain.split('.')[0].capitalize()
-                st.markdown("---")
-                st.markdown(f"### 🏢 Merchant: **{merchant_name}**")
-                st.link_button(f"🔎 Competitors", f"https://www.google.com/search?q={urllib.parse.quote('sites like ' + domain)}")
-            except: pass
+    with tabs[8]: st.write(f"**OTA Search:** `{data.get('analysis',{}).get('ota_search_term','')}`")
 
-    # --- EMAIL TAB ---
     with tabs[9]:
         st.header("📧 Draft Supplier Email")
-        st.caption("Request missing info/confirmation.")
-        
-        if st.button("📝 Draft Email to Supplier"):
+        if st.button("📝 Draft Email"):
             keys = get_all_keys()
             if keys:
-                with st.spinner("Analyzing..."):
-                    email_draft = call_gemini_email_draft(data, keys[0])
-                    st.text_area("Copy this email:", value=email_draft, height=300)
-            else:
-                st.error("No API Keys found.")
+                with st.spinner("Writing..."):
+                    email = call_gemini_email_draft(data, keys[0])
+                    st.text_area("Email Draft", value=email, height=300)
     
-    # --- AUTOMATION TAB (NEW) ---
     with tabs[10]:
         st.header("🔧 Automation Data")
-        st.info("Copy this raw JSON block. You can feed this into a Tampermonkey Script to auto-fill the Klook Backend.")
         st.code(json.dumps(data, indent=4), language="json")
 
 # --- SMART ROTATION ---
@@ -426,15 +391,19 @@ with t1:
         if not url: st.error("❌ Enter URL"); st.stop()
 
         with st.status("🚀 Processing...", expanded=True) as status:
-            status.write("🕷️ Scraping URL...")
-            text = extract_text_from_url(url)
-            if not text or "ERROR" in text:
+            status.write("🕷️ Scraping URL & Images...")
+            data_dict, err = extract_data_from_url(url)
+            
+            if err or not data_dict:
                 status.update(label="❌ Scrape Failed", state="error")
-                st.error(f"Scraper Error: {text}")
+                st.error(err)
                 st.stop()
             
-            status.write(f"✅ Scraped {len(text)} chars. Calling AI...")
-            result = smart_rotation_wrapper(text, keys)
+            # Save Images to Session State for the other tab
+            st.session_state['scraped_images'] = data_dict['images']
+            
+            status.write(f"✅ Found {len(data_dict['images'])} images & {len(data_dict['text'])} chars. Calling AI...")
+            result = smart_rotation_wrapper(data_dict['text'], keys)
             
             if "Busy" not in result and "Error" not in result:
                 st.session_state['gen_result'] = result
@@ -451,41 +420,74 @@ with t2:
     if st.button("Generate from Text"):
         keys = get_all_keys()
         if not keys: st.error("❌ No Keys"); st.stop()
-        if len(raw_text) < 50: st.error("❌ Text too short"); st.stop()
-        st.info(f"🚀 Processing...")
         result = smart_rotation_wrapper(raw_text, keys)
-        
         if "Busy" not in result and "Error" not in result:
             st.session_state['gen_result'] = result
-            st.session_state['url_input'] = None
 
 with t3:
-    st.info("Upload photos to resize to **8:5 (1280x800)**")
+    st.info("Upload photos OR use photos scraped from the link.")
     enable_captions = st.checkbox("☑️ Generate AI Captions", value=True)
     c_align = st.selectbox("Crop Focus", ["Center", "Top", "Bottom", "Left", "Right"])
     align_map = {"Center":(0.5,0.5), "Top":(0.5,0.0), "Bottom":(0.5,1.0), "Left":(0.0,0.5), "Right":(1.0,0.5)}
     
-    files = st.file_uploader("Upload", accept_multiple_files=True, type=['jpg','png','jpeg'])
-    if files:
+    # 1. FILE UPLOADER
+    files = st.file_uploader("Upload Files", accept_multiple_files=True, type=['jpg','png','jpeg'])
+    
+    # 2. SCRAPED IMAGES SELECTOR
+    selected_scraped = []
+    if st.session_state['scraped_images']:
+        st.divider()
+        st.write(f"**🌐 Found {len(st.session_state['scraped_images'])} images from website:**")
+        cols = st.columns(5)
+        for i, img_url in enumerate(st.session_state['scraped_images']):
+            with cols[i % 5]:
+                st.image(img_url, use_column_width=True)
+                if st.checkbox("Select", key=f"img_{i}"):
+                    selected_scraped.append(img_url)
+
+    if st.button("Process Selected Images"):
         keys = get_all_keys()
-        if st.button("Process Images"):
-            zip_buf = io.BytesIO()
+        zip_buf = io.BytesIO()
+        
+        # Combine uploaded files + scraped URLs
+        total_items = (files if files else []) + selected_scraped
+        
+        if not total_items:
+            st.warning("⚠️ No images selected.")
+        else:
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 prog_bar = st.progress(0)
-                total_files = len(files)
-                for i, f in enumerate(files):
-                    prog_bar.progress((i + 1) / total_files)
-                    b_img, err = resize_image_klook_standard(f, align_map[c_align])
-                    if b_img:
-                        zf.writestr(f"resized_{f.name}", b_img)
-                        c1, c2 = st.columns([1,3])
-                        c1.image(b_img, width=150)
-                        caption = "AI Disabled"
-                        if enable_captions and keys:
-                            caption = call_gemini_caption(b_img, random.choice(keys))
-                        c2.text_area(f"Caption: {f.name}", value=caption, height=70)
+                
+                # A. Process Uploaded Files
+                if files:
+                    for i, f in enumerate(files):
+                        b_img, err = resize_image_klook_standard(f, align_map[c_align])
+                        if b_img:
+                            zf.writestr(f"resized_{f.name}", b_img)
+                            caption = call_gemini_caption(b_img, random.choice(keys)) if enable_captions and keys else ""
+                            st.write(f"✅ {f.name} - {caption}")
+
+                # B. Process Scraped URLs
+                if selected_scraped:
+                    st.write("--- Processing Web Images ---")
+                    headers = {'User-Agent': 'Mozilla/5.0'}
+                    for i, url in enumerate(selected_scraped):
+                        try:
+                            resp = requests.get(url, headers=headers, timeout=10)
+                            if resp.status_code == 200:
+                                b_img, err = resize_image_klook_standard(resp.content, align_map[c_align])
+                                if b_img:
+                                    fname = f"web_image_{i}.jpg"
+                                    zf.writestr(fname, b_img)
+                                    caption = call_gemini_caption(b_img, random.choice(keys)) if enable_captions and keys else ""
+                                    st.write(f"✅ {fname} - {caption}")
+                        except Exception as e:
+                            st.error(f"Failed to download {url}: {e}")
+
+                prog_bar.progress(100)
+            
             st.success("✅ Done!")
-            st.download_button("⬇️ Download ZIP", zip_buf.getvalue(), "images.zip", "application/zip")
+            st.download_button("⬇️ Download ZIP", zip_buf.getvalue(), "klook_images.zip", "application/zip")
 
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
