@@ -192,13 +192,12 @@ def call_gemini_json_summary(text, api_key):
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
 
-# --- EMAIL DRAFTER (UPDATED: GAP ANALYSIS ONLY) ---
+# --- EMAIL DRAFTER (GAP ANALYSIS) ---
 def call_gemini_email_draft(json_data, api_key):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     
-    # NEW STRICT PROMPT
     prompt = f"""
     You are a Klook Onboarding Specialist. 
     **TASK:** Draft a concise email to the Merchant (Supplier).
@@ -257,15 +256,17 @@ def render_output(json_text, url_input=None):
         st.warning("⚠️ Formatting Issue. See 'Raw Response' below.")
         st.code(json_text)
         return
+        
+    # --- DEFINE VARIABLES FIRST (FIXED CRASH) ---
+    info = data.get("basic_info", {})
+    inc = data.get("inclusions", {})
+    pol = data.get("policies", {})
+    seo = data.get("seo", {})
 
     # --- SIDEBAR ---
     with st.sidebar:
         st.header("📋 Copy Dashboard")
         
-        info = data.get("basic_info", {})
-        inc = data.get("inclusions", {})
-        pol = data.get("policies", {})
-
         copy_box("📍 Location", info.get('city_country'))
         copy_box("🏷️ Name", info.get('main_attractions'))
         
@@ -363,7 +364,6 @@ def render_output(json_text, url_input=None):
     with tabs[6]: st.code(str(seo.get("keywords")))
     with tabs[7]: st.write(data.get("pricing", {}).get("details"))
     
-    # --- ANALYSIS BUTTONS (FIXED) ---
     with tabs[8]: 
         an = data.get("analysis", {})
         search_term = an.get("ota_search_term", "")
