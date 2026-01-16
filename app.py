@@ -79,22 +79,28 @@ def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
     except Exception as e:
         return None, f"Error processing image: {e}"
 
-# --- SCRAPER (UPDATED: KEEPS BUTTONS FOR FAQ) ---
+# --- SCRAPER (EXTENDED LIMIT) ---
 @st.cache_data(ttl=86400, show_spinner=False)
 def extract_text_from_url(url):
     try:
         scraper = cloudscraper.create_scraper(browser='chrome')
         response = scraper.get(url, timeout=20)
         if response.status_code != 200: return f"ERROR: Status Code {response.status_code}"
+        
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        # FIX: Removed "button" from this list so we don't delete FAQ headers
-        for script in soup(["script", "style", "nav", "footer", "iframe", "svg", "noscript"]): 
+        # Only remove truly useless stuff
+        for script in soup(["script", "style", "noscript", "svg"]): 
             script.extract()
             
-        text = soup.get_text(separator='\n')
+        # Get text with clear separation
+        text = soup.get_text(separator=' \n ')
+        
+        # Clean up whitespace
         lines = (line.strip() for line in text.splitlines())
-        return '\n'.join(line for line in lines if line)[:35000] # Increased limit slightly
+        
+        # INCREASED LIMIT TO 100,000 CHARACTERS
+        return '\n'.join(line for line in lines if line)[:100000] 
     except Exception as e: return f"ERROR: {str(e)}"
 
 # --- SMART MODEL FINDER ---
@@ -113,16 +119,15 @@ def get_working_model_name(api_key):
 def sanitize_text(text):
     if not text: return ""
     text = text.encode('utf-8', 'ignore').decode('utf-8')
-    return text.replace("\\", "\\\\")[:25000]
+    return text.replace("\\", "\\\\")[:95000] # Increased input limit for AI
 
-# --- GEMINI CALLS (STRICT FORMATTING) ---
+# --- GEMINI CALLS (FAQ FIX) ---
 def call_gemini_json_summary(text, api_key):
     model_name = get_working_model_name(api_key)
     if not model_name: return "Error: No available Gemini models found."
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
-    # UPDATED STRICT PROMPT WITH FAQ FOCUS
     intro_prompt = f"""
     You are a content specialist for Klook.
     **TASK:** Convert tour text into strict JSON matching Klook's backend structure.
@@ -130,8 +135,8 @@ def call_gemini_json_summary(text, api_key):
     **STRICT FORMATTING RULES:**
     1. **Highlights:** Exactly **4-5 bullet points**. Each point **10-12 words**. No full stops.
     2. **What to Expect:** Single paragraph (**100-120 words**).
-    3. **Policies & FAQ:** Must be **bullet points**.
-    4. **FAQ Detection:** Look closely at the input text for "Q&A", "Questions", or "FAQ" sections. If found, summarize them.
+    3. **Policies:** Bullet points.
+    4. **FAQ:** Look for "Q&A" or "FAQ" headers. If found, combine the Question AND the Answer into a single paragraph or a list of "Q: ... A: ..." pairs. **Do not just list the questions.** If answers are missing in the text, skip the question.
     5. **Output:** ONLY raw JSON.
     
     **REQUIRED JSON STRUCTURE:**
@@ -156,7 +161,7 @@ def call_gemini_json_summary(text, api_key):
         }},
         "policies": {{ "cancellation": "Policy text", "merchant_contact": "Contact" }},
         "inclusions": {{ "included": ["Item 1 (No period)", "Item 2 (No period)"], "excluded": ["Item 3 (No period)"] }},
-        "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": ["Question 1?", "Question 2?"] }},
+        "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": ["Q: Question? A: Answer."] }},
         "seo": {{ "keywords": ["Key 1", "Key 2"] }},
         "pricing": {{ "details": "Price info" }},
         "analysis": {{ "ota_search_term": "Product Name" }}
@@ -177,16 +182,16 @@ def call_gemini_email_draft(json_data, api_key):
     
     prompt = f"""
     You are a Klook Onboarding Specialist. 
-    **TASK:** Draft a polite, professional email to the Merchant (Supplier) requesting missing information based on the JSON data below.
+    **TASK:** Draft a polite, professional email to the Merchant (Supplier) requesting missing information.
     
     **CRITICAL REQUIREMENTS:**
-    1. **Mandatory Checks:** ALWAYS ask them to verify the final **Pricing** and the exact **Duration** of the activity.
-    2. **Missing Info:** Identify any fields in the JSON that are "null", "empty", "not specified", or vague (e.g. "TBC"). Ask for these specifically.
-    3. **Nature of Activity Logic:** - If it's a **Water Activity**, ask about weather policies/life jackets.
-       - If it's **Food**, ask about dietary options (Halal/Veg).
-       - If it's **Transport**, ask about luggage limits/waiting time.
-       - If it's **Adventure**, ask about age/weight limits.
-    4. **Format:** Use a clear bulleted list. Keep it concise.
+    1. **Mandatory Checks:** ALWAYS ask them to verify the final **Pricing** and the exact **Duration**.
+    2. **Missing Info:** Ask about null/empty fields or vague info (e.g. "TBC").
+    3. **Nature of Activity:** - Water: Ask about weather/safety.
+       - Food: Ask about diet.
+       - Transport: Ask about luggage/waiting.
+       - Adventure: Ask about age/weight.
+    4. **Format:** Concise bulleted list.
     
     **INPUT DATA:**
     {json.dumps(json_data)}
@@ -341,13 +346,14 @@ def render_output(json_text, url_input=None):
         st.write(f"**Child:** {res.get('child_policy')}")
         st.write(f"**Accessibility:** {res.get('accessibility')}")
         
-        # FAQ handling
+        # FAQ RENDERER
         faq = res.get('faq')
-        with st.expander("View FAQ"):
+        with st.expander("View FAQ", expanded=True):
             if isinstance(faq, list):
+                # Clean list display
                 for f in faq: st.write(f"- {f}")
             else:
-                st.write(faq or 'No FAQ found.')
+                st.info(faq or 'No FAQ found.')
 
     with tabs[6]: st.code(str(seo.get("keywords")))
     with tabs[7]: st.write(data.get("pricing", {}).get("details"))
