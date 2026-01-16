@@ -79,7 +79,7 @@ def resize_image_klook_standard(uploaded_file, alignment=(0.5, 0.5)):
     except Exception as e:
         return None, f"Error processing image: {e}"
 
-# --- SCRAPER ---
+# --- SCRAPER (UPDATED: KEEPS BUTTONS FOR FAQ) ---
 @st.cache_data(ttl=86400, show_spinner=False)
 def extract_text_from_url(url):
     try:
@@ -87,10 +87,14 @@ def extract_text_from_url(url):
         response = scraper.get(url, timeout=20)
         if response.status_code != 200: return f"ERROR: Status Code {response.status_code}"
         soup = BeautifulSoup(response.content, 'html.parser')
-        for script in soup(["script", "style", "nav", "footer", "iframe", "svg", "button", "noscript"]): script.extract()
+        
+        # FIX: Removed "button" from this list so we don't delete FAQ headers
+        for script in soup(["script", "style", "nav", "footer", "iframe", "svg", "noscript"]): 
+            script.extract()
+            
         text = soup.get_text(separator='\n')
         lines = (line.strip() for line in text.splitlines())
-        return '\n'.join(line for line in lines if line)[:30000]
+        return '\n'.join(line for line in lines if line)[:35000] # Increased limit slightly
     except Exception as e: return f"ERROR: {str(e)}"
 
 # --- SMART MODEL FINDER ---
@@ -118,16 +122,16 @@ def call_gemini_json_summary(text, api_key):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
-    # UPDATED STRICT PROMPT
+    # UPDATED STRICT PROMPT WITH FAQ FOCUS
     intro_prompt = f"""
     You are a content specialist for Klook.
     **TASK:** Convert tour text into strict JSON matching Klook's backend structure.
     
     **STRICT FORMATTING RULES:**
-    1. **Highlights:** Must be exactly **4-5 bullet points**. Each point must be **10-12 words long**.
-    2. **What to Expect:** Must be a **single paragraph** of approximately **100-120 words**.
-    3. **Policies & FAQ:** Must be formatted as **bullet points** (lists), not paragraphs.
-    4. **No Full Stops:** Do NOT use periods (.) at the end of Highlights or Inclusion bullet points.
+    1. **Highlights:** Exactly **4-5 bullet points**. Each point **10-12 words**. No full stops.
+    2. **What to Expect:** Single paragraph (**100-120 words**).
+    3. **Policies & FAQ:** Must be **bullet points**.
+    4. **FAQ Detection:** Look closely at the input text for "Q&A", "Questions", or "FAQ" sections. If found, summarize them.
     5. **Output:** ONLY raw JSON.
     
     **REQUIRED JSON STRUCTURE:**
@@ -137,7 +141,7 @@ def call_gemini_json_summary(text, api_key):
             "group_type": "Private/Join-in",
             "duration": "Duration (e.g. 8 hours)",
             "main_attractions": "Tour Name",
-            "highlights": ["Highlight 1 (10-12 words)", "Highlight 2 (10-12 words)", "Highlight 3", "Highlight 4"],
+            "highlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],
             "what_to_expect": "Single paragraph (100-120 words).",
             "selling_points": ["Tag 1", "Tag 2"]
         }},
@@ -337,7 +341,7 @@ def render_output(json_text, url_input=None):
         st.write(f"**Child:** {res.get('child_policy')}")
         st.write(f"**Accessibility:** {res.get('accessibility')}")
         
-        # FAQ handling (list or text)
+        # FAQ handling
         faq = res.get('faq')
         with st.expander("View FAQ"):
             if isinstance(faq, list):
