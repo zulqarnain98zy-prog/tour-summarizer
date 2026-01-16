@@ -329,7 +329,7 @@ def render_output(json_text, url_input=None):
             sTime = seg.get('time', '')
             sDet = seg.get('details', '')
             
-            # --- MAP LOGIC RESTORED ---
+            # --- MAP LOGIC ---
             sLoc = seg.get('location_search', '')
             map_btn = ""
             if sLoc:
@@ -466,17 +466,15 @@ with t2:
         if "Busy" not in result and "Error" not in result:
             st.session_state['gen_result'] = result
 
-# --- PHOTO RESIZER TAB ---
+# --- PHOTO RESIZER TAB (FIXED KEYS) ---
 with t3:
     st.info("Upload photos OR use photos scraped from the link.")
     enable_captions = st.checkbox("☑️ Generate AI Captions", value=True)
     c_align = st.selectbox("Crop Focus", ["Center", "Top", "Bottom", "Left", "Right"])
     align_map = {"Center":(0.5,0.5), "Top":(0.5,0.0), "Bottom":(0.5,1.0), "Left":(0.0,0.5), "Right":(1.0,0.5)}
     
-    # 1. FILE UPLOADER
     files = st.file_uploader("Upload Files", accept_multiple_files=True, type=['jpg','png','jpeg'])
     
-    # 2. SCRAPED IMAGES SELECTOR
     selected_scraped = []
     if st.session_state['scraped_images']:
         st.divider()
@@ -504,10 +502,10 @@ with t3:
                 for idx, item in enumerate(total_items):
                     prog_bar.progress((idx + 1) / total_count)
                     
-                    if hasattr(item, 'read'): # FileUpload
+                    if hasattr(item, 'read'): 
                         fname = item.name
                         b_img, err = resize_image_klook_standard(item, align_map[c_align])
-                    else: # URL
+                    else: 
                         fname = f"web_image_{idx}.jpg"
                         try:
                             headers = {'User-Agent': 'Mozilla/5.0'}
@@ -525,12 +523,17 @@ with t3:
                             caption_text = ""
                             if enable_captions and keys:
                                 caption_text = call_gemini_caption(b_img, random.choice(keys))
-                            st.text_area(f"Caption for {fname}", value=caption_text, height=100)
+                            
+                            # UNIQUE KEY ADDED HERE (f"cap_{idx}")
+                            st.text_area(f"Caption for {fname}", value=caption_text, height=100, key=f"cap_{idx}")
+                            
+                            # UNIQUE KEY ADDED HERE (f"btn_{idx}")
                             st.download_button(
                                 label=f"⬇️ Download {fname}",
                                 data=b_img,
                                 file_name=f"resized_{fname}",
-                                mime="image/jpeg"
+                                mime="image/jpeg",
+                                key=f"btn_{idx}"
                             )
                         st.divider()
 
