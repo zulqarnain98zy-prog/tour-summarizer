@@ -13,6 +13,9 @@ from datetime import datetime
 import sys
 import io
 import zipfile
+import ssl
+from requests.adapters import HTTPAdapter
+from urllib3.poolmanager import PoolManager
 
 # --- TRY IMPORTING IMAGE LIBRARY ---
 try:
@@ -86,11 +89,27 @@ def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
     except Exception as e:
         return None, f"Error processing image: {e}"
 
-# --- SCRAPER (TEXT + IMAGES) ---
+# --- CUSTOM SSL ADAPTER (THE FIX) ---
+class LegacySSLAdapter(HTTPAdapter):
+    def init_poolmanager(self, connections, maxsize, block=False):
+        ctx = ssl.create_default_context()
+        # This lowers the security level to allow older ciphers/SSL versions
+        ctx.set_ciphers('DEFAULT@SECLEVEL=1') 
+        self.poolmanager = PoolManager(
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+            ssl_context=ctx
+        )
+
+# --- SCRAPER (TEXT + IMAGES + SSL FIX) ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def extract_data_from_url(url):
     try:
+        # Create scraper with Legacy Adapter attached
         scraper = cloudscraper.create_scraper(browser='chrome')
+        scraper.mount('https://', LegacySSLAdapter())
+        
         response = scraper.get(url, timeout=20)
         if response.status_code != 200: return None, f"ERROR: Status Code {response.status_code}"
         
@@ -140,6 +159,22 @@ def sanitize_text(text):
     text = text.encode('utf-8', 'ignore').decode('utf-8')
     return text.replace("\\", "\\\\")[:95000]
 
+# --- KLOOK SELLING POINTS LIST ---
+SELLING_POINTS_LIST = """
+Interactive, Romantic, Customizable, Guided, Private, Skip-the-line, Small Group, VIP, All Inclusive, 
+Architecture, Canal, Cultural, Historical, Movie, Museum, Music, Religious Site, Pilgrimage, Spiritual, Temple, UNESCO site, Local Village, Old Town, 
+TV, Movie and TV, Heritage, Downtown, City Highlights, Downtown Highlights, 
+Alpine Route, Coral Reef, Desert, Glacier, Mangrove, Marine Life, Mountain, Rainforest, Safari, Sand Dune, Volcano, Waterfall, River, 
+Cherry Blossom, Fireflies, Maple Leaf, Northern Lights, Stargazing, National Park, Nature, Wildlife, Sunrise, Sunset, 
+Dolphin Watching, Whale Watching, Canyon, Flower Viewing, Tulip, Lavender, Spring, Summer, Autumn, Winter, Coastal, Beachfront, 
+Bar Hopping, Dining, Wine Tasting, Cheese, Chocolate, Food, Gourmet, Street Food, Brewery, Distillery, Whiskey, Seafood, Local Food, Late Night Food, 
+ATV, Bouldering, Diving, Fishing, Fruit Picking, Hiking, Island Hopping, Kayaking, Night Fishing, Ski, Snorkeling, Trekking, Caving, 
+Sports, Stadium, Horse Riding, Parasailing, 
+Transfers, Transfers With Tickets, Boat, Catamaran, Charter, Cruise, Ferry, Helicopter, Hop-On Hop-Off Bus, Limousine, Open-top Bus, Speedboat, Yacht, Walking, Bus, Bike, Electric Bike, River Cruise, Longtail Boat, Hot Air Balloon, 
+Hot Spring, Beach, Yoga, Meditation, 
+City, Countryside, Night, Shopping, Sightseeing, Photography, Self-guided, Shore Excursion, Adventure, Discovery, Backstreets, Hidden Gems
+"""
+
 # --- GEMINI CALLS ---
 def call_gemini_json_summary(text, api_key):
     model_name = get_working_model_name(api_key)
@@ -157,7 +192,11 @@ def call_gemini_json_summary(text, api_key):
     3. **Policies:** Bullet points.
     4. **FAQ:** Look for "Q&A" or "FAQ" headers. Combine Q&A into a single paragraph or "Q: ... A: ..." list.
     5. **PHONE NUMBER:** Format 'merchant_contact' as **+X-XXX-XXX-XXXX**. Detect country code from location.
-    6. **Output:** ONLY raw JSON.
+    6. **SELLING POINTS:** You MUST choose relevant tags ONLY from the provided list below. Do not invent new tags.
+    7. **Output:** ONLY raw JSON.
+    
+    **ALLOWED SELLING POINTS LIST:**
+    {SELLING_POINTS_LIST}
     
     **REQUIRED JSON STRUCTURE:**
     {{
@@ -225,7 +264,7 @@ def call_gemini_caption(image_bytes, api_key):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
-    prompt = "Write a captivating social media caption (10-12 words, experiential verb start, no emojis)."
+    prompt = "Write a captivating social media caption (strictly 10-12 words, experiential verb start, NO full stop, no emojis)."
     try:
         response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
         return response.text
@@ -299,6 +338,8 @@ def render_output(json_text, url_input=None):
         st.divider()
         st.write("**🌟 Highlights:**")
         for h in info.get("highlights", []): st.write(f"- {h}")
+        st.write("**🏷️ Selling Points:**")
+        st.write(", ".join(info.get("selling_points", [])))
         st.info(info.get("what_to_expect"))
 
     with tabs[1]:
@@ -466,7 +507,7 @@ with t2:
         if "Busy" not in result and "Error" not in result:
             st.session_state['gen_result'] = result
 
-# --- PHOTO RESIZER TAB (FIXED KEYS) ---
+# --- PHOTO RESIZER TAB ---
 with t3:
     st.info("Upload photos OR use photos scraped from the link.")
     enable_captions = st.checkbox("☑️ Generate AI Captions", value=True)
@@ -524,10 +565,8 @@ with t3:
                             if enable_captions and keys:
                                 caption_text = call_gemini_caption(b_img, random.choice(keys))
                             
-                            # UNIQUE KEY ADDED HERE (f"cap_{idx}")
                             st.text_area(f"Caption for {fname}", value=caption_text, height=100, key=f"cap_{idx}")
                             
-                            # UNIQUE KEY ADDED HERE (f"btn_{idx}")
                             st.download_button(
                                 label=f"⬇️ Download {fname}",
                                 data=b_img,
