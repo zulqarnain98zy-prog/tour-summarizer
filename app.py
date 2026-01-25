@@ -17,11 +17,26 @@ import ssl
 from requests.adapters import HTTPAdapter
 from urllib3.poolmanager import PoolManager
 
-# --- TRY IMPORTING IMAGE LIBRARY ---
+# --- TRY IMPORTING LIBRARIES ---
 try:
     from PIL import Image, ImageOps
 except ImportError:
     Image = None
+
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListFlowable, ListItem
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib import colors
+    HAS_REPORTLAB = True
+except ImportError:
+    HAS_REPORTLAB = False
+
+try:
+    from pypdf import PdfReader
+    HAS_PYPDF = True
+except ImportError:
+    HAS_PYPDF = False
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Klook Magic Tool", page_icon="⭐", layout="wide")
@@ -58,6 +73,8 @@ if 'url_input' not in st.session_state:
     st.session_state['url_input'] = None
 if 'scraped_images' not in st.session_state:
     st.session_state['scraped_images'] = []
+if 'product_context' not in st.session_state:
+    st.session_state['product_context'] = ""
 
 # --- LOAD KEYS ---
 def get_all_keys():
@@ -89,11 +106,10 @@ def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
     except Exception as e:
         return None, f"Error processing image: {e}"
 
-# --- CUSTOM SSL ADAPTER (THE FIX) ---
+# --- CUSTOM SSL ADAPTER ---
 class LegacySSLAdapter(HTTPAdapter):
     def init_poolmanager(self, connections, maxsize, block=False):
         ctx = ssl.create_default_context()
-        # This lowers the security level to allow older ciphers/SSL versions
         ctx.set_ciphers('DEFAULT@SECLEVEL=1') 
         self.poolmanager = PoolManager(
             num_pools=connections,
@@ -102,11 +118,10 @@ class LegacySSLAdapter(HTTPAdapter):
             ssl_context=ctx
         )
 
-# --- SCRAPER (TEXT + IMAGES + SSL FIX) ---
+# --- SCRAPER ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def extract_data_from_url(url):
     try:
-        # Create scraper with Legacy Adapter attached
         scraper = cloudscraper.create_scraper(browser='chrome')
         scraper.mount('https://', LegacySSLAdapter())
         
@@ -115,31 +130,111 @@ def extract_data_from_url(url):
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        # 1. EXTRACT IMAGES
+        # EXTRACT IMAGES
         found_images = []
         for img in soup.find_all('img'):
             src = img.get('src')
             if src:
                 if src.startswith('//'): src = 'https:' + src
                 elif src.startswith('/'): src = urllib.parse.urljoin(url, src)
-                
                 if not any(x in src.lower() for x in ['logo', 'icon', 'avatar', 'svg', 'blank', 'transparent']):
                     if src not in found_images:
                         found_images.append(src)
-        
         found_images = found_images[:15]
 
-        # 2. EXTRACT TEXT
+        # EXTRACT TEXT
         for script in soup(["script", "style", "noscript", "svg"]): 
             script.extract()
-            
         text = soup.get_text(separator=' \n ')
         lines = (line.strip() for line in text.splitlines())
         clean_text = '\n'.join(line for line in lines if line)[:100000] 
         
         return {"text": clean_text, "images": found_images}, None
-
     except Exception as e: return None, f"ERROR: {str(e)}"
+
+# --- PDF READER ---
+def extract_text_from_pdf(uploaded_file):
+    if not HAS_PYPDF:
+        return "⚠️ Error: 'pypdf' library not installed. Please add 'pypdf' to requirements.txt."
+    try:
+        reader = PdfReader(uploaded_file)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+        return text[:100000] # Limit char count
+    except Exception as e:
+        return f"Error reading PDF: {str(e)}"
+
+# --- PDF GENERATOR (REPORTLAB) ---
+def create_pdf(data):
+    if not HAS_REPORTLAB:
+        return None
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
+
+    # Custom Styles
+    title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=16, spaceAfter=12, textColor=colors.darkorange)
+    heading_style = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=12, spaceBefore=10, spaceAfter=6, textColor=colors.black)
+    body_style = styles['BodyText']
+    bullet_style = ParagraphStyle('Bullet', parent=styles['BodyText'], leftIndent=20)
+
+    # 1. HEADER
+    info = data.get('basic_info', {})
+    story.append(Paragraph(f"{info.get('main_attractions', 'Tour Summary')}", title_style))
+    story.append(Paragraph(f"<b>Location:</b> {info.get('city_country')} | <b>Duration:</b> {info.get('duration')}", body_style))
+    story.append(Spacer(1, 12))
+
+    # 2. HIGHLIGHTS
+    story.append(Paragraph("✨ Highlights", heading_style))
+    highlights = info.get('highlights', [])
+    if highlights:
+        bullets = [ListItem(Paragraph(h, body_style)) for h in highlights]
+        story.append(ListFlowable(bullets, bulletType='bullet', start='•'))
+
+    # 3. DESCRIPTION
+    story.append(Paragraph("📝 What to Expect", heading_style))
+    story.append(Paragraph(info.get('what_to_expect', ''), body_style))
+
+    # 4. ITINERARY
+    story.append(Paragraph("🗺️ Itinerary", heading_style))
+    itin = data.get('klook_itinerary', {})
+    segments = itin.get('segments', [])
+    
+    # Start
+    start = itin.get('start', {})
+    story.append(Paragraph(f"<b>{start.get('time', '')}</b> - Start at {start.get('location', '')}", body_style))
+    
+    # Segments
+    for seg in segments:
+        text = f"<b>{seg.get('time', '')}</b> - {seg.get('type')}: {seg.get('name')}"
+        if seg.get('details'):
+            text += f"<br/><i>{seg.get('details')}</i>"
+        story.append(Paragraph(text, bullet_style))
+    
+    # End
+    end = itin.get('end', {})
+    story.append(Paragraph(f"<b>{end.get('time', '')}</b> - End at {end.get('location', '')}", body_style))
+
+    # 5. INCLUSIONS / EXCLUSIONS
+    inc = data.get('inclusions', {})
+    
+    story.append(Paragraph("✅ Included", heading_style))
+    included = inc.get('included', [])
+    if included:
+        bullets = [ListItem(Paragraph(x, body_style)) for x in included]
+        story.append(ListFlowable(bullets, bulletType='bullet', start='•'))
+        
+    story.append(Paragraph("❌ Excluded", heading_style))
+    excluded = inc.get('excluded', [])
+    if excluded:
+        bullets = [ListItem(Paragraph(x, body_style)) for x in excluded]
+        story.append(ListFlowable(bullets, bulletType='bullet', start='•'))
+
+    doc.build(story)
+    return buffer.getvalue()
 
 # --- SMART MODEL FINDER ---
 def get_working_model_name(api_key):
@@ -184,18 +279,20 @@ def call_gemini_json_summary(text, api_key):
     
     intro_prompt = f"""
     You are a content specialist for Klook.
-    **TASK:** Convert tour text into strict JSON matching Klook's backend structure.
+    **TASK:** Convert tour text into strict JSON.
     
-    **STRICT FORMATTING RULES:**
-    1. **Highlights:** Exactly **4-5 bullet points**. Each point **10-12 words**. No full stops.
-    2. **What to Expect:** Single paragraph (**100-120 words**).
-    3. **Policies:** Bullet points.
-    4. **FAQ:** Look for "Q&A" or "FAQ" headers. Combine Q&A into a single paragraph or "Q: ... A: ..." list.
-    5. **PHONE NUMBER:** Format 'merchant_contact' as **+X-XXX-XXX-XXXX**. Detect country code from location.
-    6. **SELLING POINTS:** You MUST choose relevant tags ONLY from the provided list below. Do not invent new tags.
-    7. **Output:** ONLY raw JSON.
+    **CRITICAL ACCURACY RULES:**
+    1. **NO HALLUCINATION:** If pickup info or duration is not in the text, return "TBC" or null. Do not guess based on similar tours.
+    2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-110 words**. 
+    3. **NO FULL STOP:** The 'what_to_expect' paragraph MUST NOT end with a full stop (period).
     
-    **ALLOWED SELLING POINTS LIST:**
+    **FORMATTING RULES:**
+    1. **Highlights:** Exactly 4-5 bullet points (10-12 words each). No full stops.
+    2. **Phone:** Format as +X-XXX-XXX-XXXX.
+    3. **Itinerary POIs:** Indicate if "Free Entry" or "Ticket Required" in the 'ticket_status' field. If unknown, use "Unknown".
+    4. **Selling Points:** Choose only from the allowed list.
+    
+    **ALLOWED SELLING POINTS:**
     {SELLING_POINTS_LIST}
     
     **REQUIRED JSON STRUCTURE:**
@@ -203,16 +300,16 @@ def call_gemini_json_summary(text, api_key):
         "basic_info": {{
             "city_country": "City, Country",
             "group_type": "Private/Join-in",
-            "duration": "Duration",
+            "duration": "Extract EXACT text (e.g. 3 hours)",
             "main_attractions": "Tour Name",
             "highlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],
-            "what_to_expect": "Single paragraph.",
+            "what_to_expect": "Strictly 100-110 words. No final full stop",
             "selling_points": ["Tag 1", "Tag 2"]
         }},
         "klook_itinerary": {{
-            "start": {{ "time": "09:00", "location": "Meeting Point Name" }},
+            "start": {{ "time": "09:00", "location": "Meeting Point Name (Use TBC if missing)" }},
             "segments": [
-                {{ "type": "Attraction", "time": "10:00", "name": "Name", "details": "Details", "location_search": "Search Term" }}
+                {{ "type": "Attraction", "time": "10:00", "name": "Name", "details": "Details", "location_search": "Search Term", "ticket_status": "Free Entry/Ticket Required/Unknown" }}
             ],
             "end": {{ "time": "17:00", "location": "Drop off" }}
         }},
@@ -231,7 +328,7 @@ def call_gemini_json_summary(text, api_key):
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
 
-# --- EMAIL DRAFTER (GAP ANALYSIS) ---
+# --- EMAIL DRAFTER ---
 def call_gemini_email_draft(json_data, api_key):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
@@ -239,32 +336,33 @@ def call_gemini_email_draft(json_data, api_key):
     
     prompt = f"""
     You are a Klook Onboarding Specialist. 
-    **TASK:** Draft a concise email to the Merchant (Supplier).
-    **GOAL:** ONLY Request MISSING or VAGUE information. Do NOT summarize the tour details we already found.
-    
+    **TASK:** Draft a concise GAP ANALYSIS email to the Merchant.
+    **GOAL:** ONLY Request MISSING or VAGUE information. 
     **RULES:**
-    1. **NO SUMMARY:** Do not list the "Highlights", "Description", or "Inclusions" unless you are asking a specific question about them.
-    2. **MANDATORY CHECKS:** Always ask to verify the final **Duration** and **Selling Price** if not explicitly clear.
-    3. **DETECT MISSING:** Look at the JSON. If fields are null, empty, or "TBA", ask for them.
-    4. **ACTIVITY LOGIC:** - If Water Activity: Ask about weather policy & life jackets.
-       - If Food: Ask about dietary options.
-       - If Hiking/Adventure: Ask about difficulty & age limits.
-       - If Transport: Ask about luggage limits.
-    5. **TONE:** Professional, direct, bullet points.
-    
-    **INPUT DATA:**
-    {json.dumps(json_data)}
+    1. Do NOT summarize the tour.
+    2. Ask to confirm Duration and Price.
+    3. Detect missing/null fields in this JSON: {json.dumps(json_data)}
     """
     try:
         response = model.generate_content(prompt)
         return response.text
     except: return "Error generating email."
 
-def call_gemini_caption(image_bytes, api_key):
+# --- CAPTION GENERATOR ---
+def call_gemini_caption(image_bytes, api_key, context_str=""):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
-    prompt = "Write a captivating social media caption (strictly 10-12 words, experiential verb start, NO full stop, no emojis)."
+    
+    prompt = f"""
+    Write a social media caption for this image.
+    **CONTEXT:** This is a tour of: '{context_str}'. Make the caption specific to this activity/location if possible.
+    **RULES:**
+    1. Strictly 10-12 words.
+    2. Start with an experiential verb.
+    3. NO full stop at the end.
+    4. No emojis.
+    """
     try:
         response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
         return response.text
@@ -291,6 +389,9 @@ def render_output(json_text, url_input=None):
     
     try:
         data = json.loads(clean_text)
+        # Update session context
+        if "basic_info" in data and "main_attractions" in data["basic_info"]:
+            st.session_state['product_context'] = data["basic_info"]["main_attractions"]
     except:
         st.warning("⚠️ Formatting Issue. See 'Raw Response' below.")
         st.code(json_text)
@@ -323,6 +424,19 @@ def render_output(json_text, url_input=None):
         copy_box("📞 Phone", pol.get('merchant_contact'))
         
         st.divider()
+        
+        # --- PDF BUTTON ---
+        if HAS_REPORTLAB:
+            pdf_data = create_pdf(data)
+            if pdf_data:
+                st.download_button(
+                    label="📄 Download Summary PDF",
+                    data=pdf_data,
+                    file_name=f"Klook_Summary_{int(time.time())}.pdf",
+                    mime="application/pdf"
+                )
+        else:
+            st.warning("Install 'reportlab' to enable PDF downloads.")
 
     # --- MAIN PAGE ---
     st.success("✅ Analysis Complete! Use the Sidebar 👈 to copy-paste.")
@@ -369,20 +483,29 @@ def render_output(json_text, url_input=None):
             sName = seg.get('name', 'Activity')
             sTime = seg.get('time', '')
             sDet = seg.get('details', '')
+            sTicket = seg.get('ticket_status', 'Unknown')
             
-            # --- MAP LOGIC ---
+            # --- MAP & OFFICIAL SITE LOGIC ---
             sLoc = seg.get('location_search', '')
             map_btn = ""
             if sLoc:
                 query = urllib.parse.quote(sLoc)
                 link = f"https://www.google.com/maps/search/?api=1&query={query}"
-                map_btn = f' | <a href="{link}" target="_blank" style="text-decoration:none; color:#2196F3;">📍 Map</a>'
+                site_query = urllib.parse.quote(f"{sLoc} official website")
+                site_link = f"https://www.google.com/search?q={site_query}"
+                
+                map_btn = f' | <a href="{link}" target="_blank" style="text-decoration:none; color:#2196F3;">📍 Map</a> | <a href="{site_link}" target="_blank" style="text-decoration:none; color:#4CAF50;">🌐 Official Site</a>'
             
             icon = "🎡"
             color = "#ff5722"
             if "Transport" in sType: icon="🚌"; color="#2196F3"
             if "Meal" in sType: icon="🍽️"; color="#9C27B0"
-            st.markdown(f"""<div class="timeline-step" style="border-left-color: {color};"><span class="timeline-time">{sTime}</span> <br><span class="timeline-title">{icon} {sType}: {sName}</span> {map_btn}<br><span style="font-size:0.9rem; color:#666;">{sDet}</span></div>""", unsafe_allow_html=True)
+            
+            ticket_badge = ""
+            if sTicket and "Free" in sTicket: ticket_badge = f" <span style='background:#E8F5E9; color:#2E7D32; padding:2px 6px; border-radius:4px; font-size:0.8rem'>🆓 {sTicket}</span>"
+            elif sTicket and "Unknown" not in sTicket: ticket_badge = f" <span style='background:#FFF3E0; color:#EF6C00; padding:2px 6px; border-radius:4px; font-size:0.8rem'>🎫 {sTicket}</span>"
+
+            st.markdown(f"""<div class="timeline-step" style="border-left-color: {color};"><span class="timeline-time">{sTime}</span> <br><span class="timeline-title">{icon} {sType}: {sName}</span> {ticket_badge} {map_btn}<br><span style="font-size:0.9rem; color:#666;">{sDet}</span></div>""", unsafe_allow_html=True)
 
         st.markdown(f"""<div class="timeline-step" style="border-left-color: #F44336;"><span class="timeline-time">{end.get('time')}</span><br><span class="timeline-title">🏁 Return Info</span><br><span style="font-size:0.9rem">{end.get('location')}</span></div>""", unsafe_allow_html=True)
 
@@ -465,7 +588,7 @@ def smart_rotation_wrapper(text, keys):
     return "⚠️ Server Busy. Try again."
 
 # --- MAIN APP LOGIC ---
-t1, t2, t3 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "🖼️ Photo Resizer"])
+t1, t2, t3, t4 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer"])
 
 with t1:
     url = st.text_input("Paste Tour Link")
@@ -506,10 +629,46 @@ with t2:
         result = smart_rotation_wrapper(raw_text, keys)
         if "Busy" not in result and "Error" not in result:
             st.session_state['gen_result'] = result
+            try:
+                d = json.loads(result)
+                if "basic_info" in d: st.session_state['product_context'] = d["basic_info"].get("main_attractions", "")
+            except: pass
+
+with t3:
+    st.info("Upload a PDF brochure or document to summarize.")
+    pdf_file = st.file_uploader("Upload PDF", type=['pdf'])
+    if pdf_file and st.button("Generate from PDF"):
+        keys = get_all_keys()
+        if not keys: st.error("❌ No Keys"); st.stop()
+        
+        with st.status("🚀 Reading PDF...", expanded=True) as status:
+            pdf_text = extract_text_from_pdf(pdf_file)
+            if "Error" in pdf_text:
+                status.update(label="❌ PDF Read Failed", state="error")
+                st.error(pdf_text)
+                st.stop()
+            
+            status.write(f"✅ Extracted {len(pdf_text)} chars. Calling AI...")
+            result = smart_rotation_wrapper(pdf_text, keys)
+            
+            if "Busy" not in result and "Error" not in result:
+                st.session_state['gen_result'] = result
+                try:
+                    d = json.loads(result)
+                    if "basic_info" in d: st.session_state['product_context'] = d["basic_info"].get("main_attractions", "")
+                except: pass
+                status.update(label="✅ Complete!", state="complete")
+            else:
+                status.update(label="❌ AI Failed", state="error")
+                st.error(result)
 
 # --- PHOTO RESIZER TAB ---
-with t3:
+with t4:
     st.info("Upload photos OR use photos scraped from the link.")
+    
+    context_val = st.session_state.get('product_context', '')
+    manual_context = st.text_input("Product Name / Context (for better captions):", value=context_val)
+    
     enable_captions = st.checkbox("☑️ Generate AI Captions", value=True)
     c_align = st.selectbox("Crop Focus", ["Center", "Top", "Bottom", "Left", "Right"])
     align_map = {"Center":(0.5,0.5), "Top":(0.5,0.0), "Bottom":(0.5,1.0), "Left":(0.0,0.5), "Right":(1.0,0.5)}
@@ -563,7 +722,8 @@ with t3:
                         with c2:
                             caption_text = ""
                             if enable_captions and keys:
-                                caption_text = call_gemini_caption(b_img, random.choice(keys))
+                                # PASSING CONTEXT HERE
+                                caption_text = call_gemini_caption(b_img, random.choice(keys), context_str=manual_context)
                             
                             st.text_area(f"Caption for {fname}", value=caption_text, height=100, key=f"cap_{idx}")
                             
