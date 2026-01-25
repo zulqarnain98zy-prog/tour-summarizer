@@ -86,6 +86,8 @@ if 'scraped_images' not in st.session_state:
     st.session_state['scraped_images'] = []
 if 'product_context' not in st.session_state:
     st.session_state['product_context'] = ""
+if 'raw_text_content' not in st.session_state: # NEW: Store raw text for regeneration
+    st.session_state['raw_text_content'] = ""
 
 # --- LOAD KEYS ---
 def get_all_keys():
@@ -135,21 +137,15 @@ class LegacySSLAdapter(HTTPAdapter):
             ssl_context=ctx
         )
 
-# --- SCRAPER (UPDATED v20.0) ---
+# --- SCRAPER ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def extract_data_from_url(url):
     try:
-        # v20.0 UPDATE: Enhanced Anti-Bot Configuration
         scraper = cloudscraper.create_scraper(
-            browser={
-                'browser': 'chrome',
-                'platform': 'windows',
-                'desktop': True
-            }
+            browser={'browser': 'chrome','platform': 'windows','desktop': True}
         )
         scraper.mount('https://', LegacySSLAdapter())
         
-        # Fake Headers to look like a real human on Chrome
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -160,7 +156,7 @@ def extract_data_from_url(url):
         response = scraper.get(url, headers=headers, timeout=20)
         
         if response.status_code == 403:
-            return None, "⛔ **Access Denied (403):** This website blocks AI bots. Please use the **'✍🏻 Text Summary'** tab instead. (Copy-paste the text manually)."
+            return None, "⛔ **Access Denied (403):** This website blocks AI bots. Please use the **'✍🏻 Text Summary'** tab instead."
             
         if response.status_code != 200: 
             return None, f"ERROR: Status Code {response.status_code}"
@@ -315,7 +311,6 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
-    # UPDATED PROMPT: Strict Words + Pricing Array
     intro_prompt = f"""
     You are a content specialist for Klook.
     **TASK:** Convert tour text into strict JSON.
@@ -327,12 +322,13 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     
     **CRITICAL ACCURACY RULES:**
     1. **NO HALLUCINATION:** If pickup info or duration is not in the text, return "TBC".
-    2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-110 words**. Count your words.
+    2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-120 words**. Count your words.
     3. **NO FULL STOP:** The 'what_to_expect' paragraph MUST NOT end with a full stop (period).
     
     **HIGHLIGHTS RULES:**
     - Must be **specific to the activity**, not generic.
     - Limit: 4-5 points, 10-12 words each.
+    - **CRITICAL: DO NOT END HIGHLIGHTS WITH A FULL STOP OR PERIOD.**
     
     **SELLING POINTS:**
     - Select EXACTLY 3-5 tags from the list below. Do NOT invent new ones.
@@ -350,7 +346,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
             "duration": "Duration",
             "main_attractions": "Tour Name",
             "highlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],
-            "what_to_expect": "Strictly 100-110 words. No final full stop",
+            "what_to_expect": "Strictly 100-120 words. No final full stop",
             "selling_points": ["Tag 1", "Tag 2"]
         }},
         "klook_itinerary": {{
@@ -380,6 +376,28 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
         return response.text
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
+
+# --- REGENERATE DESCRIPTION ONLY ---
+def regenerate_description_only(text, api_key, lang="English"):
+    model_name = get_working_model_name(api_key)
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name)
+    
+    prompt = f"""
+    Write a 'What to Expect' summary for this tour.
+    **CRITICAL RULES:**
+    1. STRICTLY 100-120 words. Count carefully.
+    2. Do NOT end with a full stop/period.
+    3. Language: {lang}
+    4. Text only. No JSON.
+    
+    **INPUT TEXT:**
+    {sanitize_text(text)}
+    """
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except: return "Error regenerating description."
 
 # --- EMAIL DRAFTER ---
 def call_gemini_email_draft(json_data, api_key):
@@ -524,10 +542,30 @@ def render_output(json_text, url_input=None):
         st.write("**🏷️ Selling Points:**")
         st.write(", ".join(info.get("selling_points", [])))
         
-        # DISPLAY WORD COUNT
+        st.divider()
+        
+        # WORD COUNT + REGENERATE BUTTON
         wte_text = info.get("what_to_expect", "")
         wte_count = len(wte_text.split())
-        st.info(f"📝 **What to Expect** ({wte_count} words):")
+        
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            st.info(f"📝 **What to Expect** ({wte_count} words):")
+        with c2:
+            if st.button("🔄 Regenerate Description"):
+                keys = get_all_keys()
+                if keys and st.session_state['raw_text_content']:
+                    with st.spinner("Rewriting..."):
+                        new_desc = regenerate_description_only(st.session_state['raw_text_content'], random.choice(keys), "English") # Uses current lang default
+                        # Clean last period again just in case
+                        if new_desc.endswith("."): new_desc = new_desc[:-1]
+                        
+                        # Update session state
+                        data_obj = json.loads(st.session_state['gen_result'])
+                        data_obj["basic_info"]["what_to_expect"] = new_desc
+                        st.session_state['gen_result'] = json.dumps(data_obj)
+                        st.rerun()
+        
         st.write(wte_text)
 
     with tabs[1]:
@@ -599,31 +637,24 @@ def render_output(json_text, url_input=None):
 
     with tabs[6]: st.code(str(seo.get("keywords")))
     
-    # --- UPDATED PRICE TAB ---
     with tabs[7]:
         st.header("💰 Price & Margin Calculator")
-        
         st.subheader("🔎 Extracted from Website")
         cur = price_data.get('currency', 'USD')
         p_adult = price_data.get('adult_price', 0.0)
         p_child = price_data.get('child_price', 0.0)
         p_infant = price_data.get('infant_price', 0.0)
-        
         c1, c2, c3 = st.columns(3)
         c1.metric("Adult Price", f"{cur} {p_adult}")
         c2.metric("Child Price", f"{cur} {p_child}")
         c3.metric("Infant Price", f"{cur} {p_infant}")
         st.caption(f"Raw Details: {price_data.get('details', '')}")
         st.divider()
-
         st.subheader("🧮 Net Rate Calculator")
-        # Pre-fill calculator with found adult price
         calc_price = st.number_input("🏷️ Merchant Public Price", min_value=0.0, value=float(p_adult) if p_adult else 100.0, step=1.0)
         margin_pct = st.number_input("📉 Target Margin (%)", min_value=0.0, max_value=100.0, value=20.0, step=0.5)
-        
         net_rate = calc_price * (1 - (margin_pct / 100))
         profit = calc_price - net_rate
-        
         k1, k2, k3 = st.columns(3)
         k1.metric("🛒 Klook Sell Price", f"{calc_price:,.2f}")
         k2.metric("💵 Net Rate (Cost)", f"{net_rate:,.2f}")
@@ -675,17 +706,21 @@ def smart_rotation_wrapper(text, keys, lang="English"):
                 time.sleep(1)
                 continue
             if "Error" not in result: 
-                # POST-PROCESSING FOR WORD COUNT DISPLAY
+                # POST-PROCESSING
                 try:
                     d = json.loads(result)
+                    # 1. Force Clean Highlights (Remove Trailing Periods)
+                    if "basic_info" in d and "highlights" in d["basic_info"]:
+                        cleaned_highlights = [h.rstrip('.') for h in d["basic_info"]["highlights"]]
+                        d["basic_info"]["highlights"] = cleaned_highlights
+                    
+                    # 2. Word Count Logic
                     if "basic_info" in d and "what_to_expect" in d["basic_info"]:
                         wte = d["basic_info"]["what_to_expect"]
-                        # Enforce removal of last period
                         if wte.endswith("."): wte = wte[:-1]
-                        count = len(wte.split())
-                        # Append count to string for Copy/Display
-                        d["basic_info"]["what_to_expect"] = f"{wte} ({count} words)"
-                        result = json.dumps(d)
+                        d["basic_info"]["what_to_expect"] = wte
+                        
+                    result = json.dumps(d)
                 except: pass
                 return result
     return "⚠️ Server Busy. Try again."
@@ -715,6 +750,7 @@ with t1:
                 st.stop()
             
             st.session_state['scraped_images'] = data_dict['images']
+            st.session_state['raw_text_content'] = data_dict['text'] # SAVE RAW TEXT FOR REGENERATION
             
             status.write(f"✅ Found {len(data_dict['images'])} images & {len(data_dict['text'])} chars. Calling AI...")
             result = smart_rotation_wrapper(data_dict['text'], keys, target_lang)
@@ -734,6 +770,7 @@ with t2:
     if st.button("Generate from Text"):
         keys = get_all_keys()
         if not keys: st.error("❌ No Keys"); st.stop()
+        st.session_state['raw_text_content'] = raw_text # SAVE FOR REGEN
         result = smart_rotation_wrapper(raw_text, keys, target_lang)
         if "Busy" not in result and "Error" not in result:
             st.session_state['gen_result'] = result
@@ -756,6 +793,7 @@ with t3:
                 st.error(pdf_text)
                 st.stop()
             
+            st.session_state['raw_text_content'] = pdf_text # SAVE FOR REGEN
             status.write(f"✅ Extracted {len(pdf_text)} chars. Calling AI...")
             result = smart_rotation_wrapper(pdf_text, keys, target_lang)
             
