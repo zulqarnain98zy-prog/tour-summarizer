@@ -135,15 +135,35 @@ class LegacySSLAdapter(HTTPAdapter):
             ssl_context=ctx
         )
 
-# --- SCRAPER ---
+# --- SCRAPER (UPDATED v20.0) ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def extract_data_from_url(url):
     try:
-        scraper = cloudscraper.create_scraper(browser='chrome')
+        # v20.0 UPDATE: Enhanced Anti-Bot Configuration
+        scraper = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'desktop': True
+            }
+        )
         scraper.mount('https://', LegacySSLAdapter())
         
-        response = scraper.get(url, timeout=20)
-        if response.status_code != 200: return None, f"ERROR: Status Code {response.status_code}"
+        # Fake Headers to look like a real human on Chrome
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://www.google.com/'
+        }
+        
+        response = scraper.get(url, headers=headers, timeout=20)
+        
+        if response.status_code == 403:
+            return None, "⛔ **Access Denied (403):** This website blocks AI bots. Please use the **'✍🏻 Text Summary'** tab instead. (Copy-paste the text manually)."
+            
+        if response.status_code != 200: 
+            return None, f"ERROR: Status Code {response.status_code}"
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
@@ -295,7 +315,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
-    # UPDATED PROMPT: Specific Highlights & Strict Selling Points
+    # UPDATED PROMPT: Strict Words + Pricing Array
     intro_prompt = f"""
     You are a content specialist for Klook.
     **TASK:** Convert tour text into strict JSON.
@@ -312,8 +332,6 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     
     **HIGHLIGHTS RULES:**
     - Must be **specific to the activity**, not generic.
-    - Bad: "Enjoy a scenic drive."
-    - Good: "Drive along the Great Ocean Road to see the 12 Apostles."
     - Limit: 4-5 points, 10-12 words each.
     
     **SELLING POINTS:**
@@ -411,7 +429,7 @@ def show_copy_dialog(data):
     st.caption("**Highlights**")
     hl_text = "\n".join([f"• {clean(h)}" for h in info.get('highlights', [])])
     st.code(hl_text, language='text')
-    st.caption("**Description (What to Expect)**")
+    st.caption("**Description**")
     st.code(clean(info.get('what_to_expect')), language='text')
     st.caption("**Duration**")
     st.code(clean(info.get('duration')), language='text')
