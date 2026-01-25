@@ -51,12 +51,14 @@ except ImportError:
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Klook Magic Tool", page_icon="⭐", layout="wide")
 
-# --- HIDE STREAMLIT BRANDING ---
+# --- HIDE STREAMLIT BRANDING (FIXED: KEEPS SIDEBAR ARROW) ---
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
-            header {visibility: hidden;}
+            /* We do NOT hide the header anymore, so the sidebar arrow remains visible */
+            /* header {visibility: hidden;} */ 
+            
             .stCodeBlock { margin-bottom: 0px !important; }
             div[data-testid="stSidebarUserContent"] { padding-top: 2rem; }
             
@@ -359,7 +361,15 @@ def call_gemini_caption(image_bytes, api_key, context_str=""):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
-    prompt = f"Write a social media caption (10-12 words, experiential verb start, NO full stop, no emojis). Context: '{context_str}'"
+    prompt = f"""
+    Write a social media caption for this image.
+    **CONTEXT:** This is a tour of: '{context_str}'. Make the caption specific to this activity/location if possible.
+    **RULES:**
+    1. Strictly 10-12 words.
+    2. Start with an experiential verb.
+    3. NO full stop at the end.
+    4. No emojis.
+    """
     try:
         response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
         return response.text
@@ -422,16 +432,15 @@ def render_output(json_text, url_input=None):
     pol = data.get("policies", {})
     seo = data.get("seo", {})
 
-    # --- SIDEBAR ---
+    # --- MAIN PAGE POPUP BUTTON (MOVED HERE!) ---
+    st.success("✅ Analysis Complete!")
+    if st.button("🚀 Open Quick-Copy Popup", type="primary", use_container_width=True):
+        show_copy_dialog(data)
+    st.divider()
+
+    # --- SIDEBAR (Standard Info) ---
     with st.sidebar:
         st.header("📋 Copy Dashboard")
-        
-        # POPUP BUTTON
-        if st.button("🚀 Open Quick-Copy Popup", type="primary"):
-            show_copy_dialog(data)
-        
-        st.divider()
-        
         copy_box("📍 Location", info.get('city_country'))
         copy_box("🏷️ Name", info.get('main_attractions'))
         copy_box("📞 Phone", pol.get('merchant_contact'))
@@ -448,10 +457,7 @@ def render_output(json_text, url_input=None):
                     mime="application/pdf"
                 )
 
-    # --- MAIN PAGE ---
-    st.success("✅ Analysis Complete! Click '🚀 Open Quick-Copy Popup' in the sidebar.")
-    
-    # TABS
+    # --- TABS ---
     tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Klook Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis", "📧 Supplier Email", "🔧 Automation"]
     tabs = st.tabs(tab_names)
 
