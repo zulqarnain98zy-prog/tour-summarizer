@@ -14,6 +14,7 @@ import sys
 import io
 import zipfile
 import ssl
+import unicodedata
 from requests.adapters import HTTPAdapter
 from urllib3.poolmanager import PoolManager
 
@@ -51,13 +52,11 @@ except ImportError:
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Klook Magic Tool", page_icon="⭐", layout="wide")
 
-# --- HIDE STREAMLIT BRANDING (FIXED: KEEPS SIDEBAR ARROW) ---
+# --- HIDE STREAMLIT BRANDING ---
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
             footer {visibility: hidden;}
-            /* We do NOT hide the header anymore, so the sidebar arrow remains visible */
-            /* header {visibility: hidden;} */ 
             
             .stCodeBlock { margin-bottom: 0px !important; }
             div[data-testid="stSidebarUserContent"] { padding-top: 2rem; }
@@ -96,6 +95,12 @@ def get_all_keys():
         return [st.secrets["GEMINI_API_KEY"]]
     else:
         return []
+
+# --- HELPER: ROMANIZE TEXT ---
+def romanize_text(text):
+    if not text: return ""
+    normalized = unicodedata.normalize('NFKD', text)
+    return normalized.encode('ascii', 'ignore').decode('ascii')
 
 # --- IMAGE RESIZING LOGIC ---
 def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
@@ -284,19 +289,26 @@ City, Countryside, Night, Shopping, Sightseeing, Photography, Self-guided, Shore
 """
 
 # --- GEMINI CALLS ---
-def call_gemini_json_summary(text, api_key):
+def call_gemini_json_summary(text, api_key, target_lang="English"):
     model_name = get_working_model_name(api_key)
     if not model_name: return "Error: No available Gemini models found."
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
+    # UPDATED WORD COUNT INSTRUCTIONS
     intro_prompt = f"""
     You are a content specialist for Klook.
     **TASK:** Convert tour text into strict JSON.
+    **OUTPUT LANGUAGE:** {target_lang}
+    
+    **CRITICAL RULE - ROMAN CHARACTERS ONLY:**
+    If translating to English, you MUST use strict ASCII/Roman characters (A-Z).
+    - Remove accents: 'ñ' -> 'n', 'é' -> 'e', 'ü' -> 'u', 'ç' -> 'c'.
+    - Transliterate names: 'Düsseldorf' -> 'Dusseldorf', 'São Paulo' -> 'Sao Paulo'.
     
     **CRITICAL ACCURACY RULES:**
     1. **NO HALLUCINATION:** If pickup info or duration is not in the text, return "TBC" or null. Do not guess based on similar tours.
-    2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-110 words**. 
+    2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-120 words**. 
     3. **NO FULL STOP:** The 'what_to_expect' paragraph MUST NOT end with a full stop (period).
     
     **FORMATTING RULES:**
@@ -316,7 +328,7 @@ def call_gemini_json_summary(text, api_key):
             "duration": "Extract EXACT text (e.g. 3 hours)",
             "main_attractions": "Tour Name",
             "highlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],
-            "what_to_expect": "Strictly 100-110 words. No final full stop",
+            "what_to_expect": "Strictly 100-120 words. No final full stop",
             "selling_points": ["Tag 1", "Tag 2"]
         }},
         "klook_itinerary": {{
@@ -378,10 +390,11 @@ def call_gemini_caption(image_bytes, api_key, context_str=""):
 # --- HELPER: RENDER COPY BOX ---
 def copy_box(label, text, height=None):
     if not text: return
+    safe_text = romanize_text(str(text)) if text else ""
     st.caption(f"**{label}**")
-    st.code(str(text), language="text") 
+    st.code(safe_text, language="text") 
 
-# --- POPUP DIALOG FUNCTION (EXPANDED) ---
+# --- POPUP DIALOG FUNCTION ---
 @st.dialog("📋 Full Data for Copy-Paste")
 def show_copy_dialog(data):
     info = data.get("basic_info", {})
@@ -393,23 +406,25 @@ def show_copy_dialog(data):
     
     st.info("💡 Scroll down to see all sections (Itinerary, Policies, SEO, etc).")
     
+    def clean(t): return romanize_text(str(t)) if t else ""
+
     # 1. BASIC INFO
     st.subheader("1. Basic Information")
     st.caption("**Activity Name**")
-    st.code(info.get('main_attractions', ''), language='text')
+    st.code(clean(info.get('main_attractions')), language='text')
     
     st.caption("**Highlights**")
-    hl_text = "\n".join([f"• {h}" for h in info.get('highlights', [])])
+    hl_text = "\n".join([f"• {clean(h)}" for h in info.get('highlights', [])])
     st.code(hl_text, language='text')
     
     st.caption("**Description (What to Expect)**")
-    st.code(info.get('what_to_expect', ''), language='text')
+    st.code(clean(info.get('what_to_expect')), language='text')
     
     st.caption("**Duration**")
-    st.code(info.get('duration', ''), language='text')
+    st.code(clean(info.get('duration')), language='text')
     
     st.caption("**Selling Points**")
-    sp_text = ", ".join(info.get('selling_points', []))
+    sp_text = ", ".join([clean(s) for s in info.get('selling_points', [])])
     st.code(sp_text, language='text')
 
     st.divider()
@@ -420,12 +435,11 @@ def show_copy_dialog(data):
     end = itin.get('end', {})
     segments = itin.get('segments', [])
     
-    # Build text block for itinerary
-    itin_text = f"START: {start.get('time', '')} - {start.get('location', '')}\n\n"
+    itin_text = f"START: {clean(start.get('time'))} - {clean(start.get('location'))}\n\n"
     for seg in segments:
-        itin_text += f"{seg.get('time', '')} - {seg.get('type')}: {seg.get('name')}\n"
-        if seg.get('details'): itin_text += f"   ({seg.get('details')})\n"
-    itin_text += f"\nEND: {end.get('time', '')} - {end.get('location', '')}"
+        itin_text += f"{clean(seg.get('time'))} - {clean(seg.get('type'))}: {clean(seg.get('name'))}\n"
+        if seg.get('details'): itin_text += f"   ({clean(seg.get('details'))})\n"
+    itin_text += f"\nEND: {clean(end.get('time'))} - {clean(end.get('location'))}"
     
     st.caption("**Full Itinerary (Text Format)**")
     st.code(itin_text, language='text')
@@ -436,31 +450,31 @@ def show_copy_dialog(data):
     st.subheader("3. Policies & Restrictions")
     
     st.caption("**Inclusions**")
-    inc_text = "\n".join([f"• {x}" for x in inc.get('included', [])])
+    inc_text = "\n".join([f"• {clean(x)}" for x in inc.get('included', [])])
     st.code(inc_text, language='text')
     
     st.caption("**Exclusions**")
-    exc_text = "\n".join([f"• {x}" for x in inc.get('excluded', [])])
+    exc_text = "\n".join([f"• {clean(x)}" for x in inc.get('excluded', [])])
     st.code(exc_text, language='text')
     
     st.caption("**Cancellation Policy**")
-    st.code(pol.get('cancellation', ''), language='text')
+    st.code(clean(pol.get('cancellation')), language='text')
     
     st.caption("**Child Policy**")
-    st.code(res.get('child_policy', ''), language='text')
+    st.code(clean(res.get('child_policy')), language='text')
     
     st.caption("**Accessibility**")
-    st.code(res.get('accessibility', ''), language='text')
+    st.code(clean(res.get('accessibility')), language='text')
 
     st.divider()
 
     # 4. SEO & CONTACT
     st.subheader("4. SEO & Admin")
     st.caption("**Keywords**")
-    st.code(str(seo.get("keywords", [])), language='text')
+    st.code(clean(str(seo.get("keywords", []))), language='text')
     
     st.caption("**Merchant Contact**")
-    st.code(pol.get('merchant_contact', ''), language='text')
+    st.code(clean(pol.get('merchant_contact')), language='text')
 
 # --- UI RENDERER ---
 def render_output(json_text, url_input=None):
@@ -495,7 +509,7 @@ def render_output(json_text, url_input=None):
         show_copy_dialog(data)
     st.divider()
 
-    # --- SIDEBAR (Standard Info) ---
+    # --- SIDEBAR ---
     with st.sidebar:
         st.header("📋 Copy Dashboard")
         copy_box("📍 Location", info.get('city_country'))
@@ -605,7 +619,23 @@ def render_output(json_text, url_input=None):
                 st.info(faq or 'No FAQ found.')
 
     with tabs[6]: st.code(str(seo.get("keywords")))
-    with tabs[7]: st.write(data.get("pricing", {}).get("details"))
+    
+    with tabs[7]:
+        st.header("💰 Price & Margin Calculator")
+        c1, c2 = st.columns(2)
+        with c1:
+            public_price = st.number_input("🏷️ Merchant Public Price", min_value=0.0, value=100.0, step=1.0)
+        with c2:
+            margin_pct = st.number_input("📉 Target Margin (%)", min_value=0.0, max_value=100.0, value=20.0, step=0.5)
+        
+        net_rate = public_price * (1 - (margin_pct / 100))
+        profit = public_price - net_rate
+        
+        st.divider()
+        k1, k2, k3 = st.columns(3)
+        k1.metric("🛒 Klook Sell Price", f"{public_price:,.2f}")
+        k2.metric("💵 Net Rate (Cost)", f"{net_rate:,.2f}")
+        k3.metric("📈 Profit / Booking", f"{profit:,.2f}")
     
     with tabs[8]: 
         an = data.get("analysis", {})
@@ -643,13 +673,13 @@ def render_output(json_text, url_input=None):
         st.code(json.dumps(data, indent=4), language="json")
 
 # --- SMART ROTATION ---
-def smart_rotation_wrapper(text, keys):
+def smart_rotation_wrapper(text, keys, lang="English"):
     if not keys: return "⚠️ No API keys found."
     random.shuffle(keys)
     max_retries = 3
     for attempt in range(max_retries):
         for key in keys:
-            result = call_gemini_json_summary(text, key)
+            result = call_gemini_json_summary(text, key, lang)
             if result == "429_LIMIT":
                 time.sleep(1)
                 continue
@@ -657,6 +687,11 @@ def smart_rotation_wrapper(text, keys):
     return "⚠️ Server Busy. Try again."
 
 # --- MAIN APP LOGIC ---
+with st.sidebar:
+    st.header("⚙️ Settings")
+    target_lang = st.selectbox("🌐 Target Language", ["English", "Chinese (Traditional)", "Chinese (Simplified)", "Korean", "Japanese", "Thai", "Vietnamese", "Indonesian"])
+    st.divider()
+
 t1, t2, t3, t4 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer"])
 
 with t1:
@@ -678,7 +713,7 @@ with t1:
             st.session_state['scraped_images'] = data_dict['images']
             
             status.write(f"✅ Found {len(data_dict['images'])} images & {len(data_dict['text'])} chars. Calling AI...")
-            result = smart_rotation_wrapper(data_dict['text'], keys)
+            result = smart_rotation_wrapper(data_dict['text'], keys, target_lang)
             
             if "Busy" not in result and "Error" not in result:
                 st.session_state['gen_result'] = result
@@ -695,7 +730,7 @@ with t2:
     if st.button("Generate from Text"):
         keys = get_all_keys()
         if not keys: st.error("❌ No Keys"); st.stop()
-        result = smart_rotation_wrapper(raw_text, keys)
+        result = smart_rotation_wrapper(raw_text, keys, target_lang)
         if "Busy" not in result and "Error" not in result:
             st.session_state['gen_result'] = result
             try:
@@ -718,7 +753,7 @@ with t3:
                 st.stop()
             
             status.write(f"✅ Extracted {len(pdf_text)} chars. Calling AI...")
-            result = smart_rotation_wrapper(pdf_text, keys)
+            result = smart_rotation_wrapper(pdf_text, keys, target_lang)
             
             if "Busy" not in result and "Error" not in result:
                 st.session_state['gen_result'] = result
