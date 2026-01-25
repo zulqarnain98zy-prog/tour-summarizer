@@ -295,7 +295,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
-    # UPDATED PROMPT: Strict Words + Pricing Array
+    # UPDATED PROMPT: Specific Highlights & Strict Selling Points
     intro_prompt = f"""
     You are a content specialist for Klook.
     **TASK:** Convert tour text into strict JSON.
@@ -307,12 +307,22 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     
     **CRITICAL ACCURACY RULES:**
     1. **NO HALLUCINATION:** If pickup info or duration is not in the text, return "TBC".
-    2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-120 words**. Count your words. If you go over 120, delete sentences.
+    2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-110 words**. Count your words.
     3. **NO FULL STOP:** The 'what_to_expect' paragraph MUST NOT end with a full stop (period).
     
+    **HIGHLIGHTS RULES:**
+    - Must be **specific to the activity**, not generic.
+    - Bad: "Enjoy a scenic drive."
+    - Good: "Drive along the Great Ocean Road to see the 12 Apostles."
+    - Limit: 4-5 points, 10-12 words each.
+    
+    **SELLING POINTS:**
+    - Select EXACTLY 3-5 tags from the list below. Do NOT invent new ones.
+    - List: {SELLING_POINTS_LIST}
+    
     **PRICING EXTRACTION:**
-    - Look for Adult, Child, and Infant prices. Extract them as numbers (e.g. 50.0).
-    - Detect the Currency Code (e.g. USD, EUR, AUD).
+    - Look for Adult, Child, and Infant prices. Extract as numbers.
+    - Detect Currency Code.
     
     **REQUIRED JSON STRUCTURE:**
     {{
@@ -322,7 +332,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
             "duration": "Duration",
             "main_attractions": "Tour Name",
             "highlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],
-            "what_to_expect": "Strictly 100-120 words. No final full stop",
+            "what_to_expect": "Strictly 100-110 words. No final full stop",
             "selling_points": ["Tag 1", "Tag 2"]
         }},
         "klook_itinerary": {{
@@ -401,7 +411,7 @@ def show_copy_dialog(data):
     st.caption("**Highlights**")
     hl_text = "\n".join([f"• {clean(h)}" for h in info.get('highlights', [])])
     st.code(hl_text, language='text')
-    st.caption("**Description**")
+    st.caption("**Description (What to Expect)**")
     st.code(clean(info.get('what_to_expect')), language='text')
     st.caption("**Duration**")
     st.code(clean(info.get('duration')), language='text')
@@ -495,7 +505,12 @@ def render_output(json_text, url_input=None):
         for h in info.get("highlights", []): st.write(f"- {h}")
         st.write("**🏷️ Selling Points:**")
         st.write(", ".join(info.get("selling_points", [])))
-        st.info(info.get("what_to_expect"))
+        
+        # DISPLAY WORD COUNT
+        wte_text = info.get("what_to_expect", "")
+        wte_count = len(wte_text.split())
+        st.info(f"📝 **What to Expect** ({wte_count} words):")
+        st.write(wte_text)
 
     with tabs[1]:
         itin = data.get("klook_itinerary", {})
@@ -570,7 +585,6 @@ def render_output(json_text, url_input=None):
     with tabs[7]:
         st.header("💰 Price & Margin Calculator")
         
-        # 1. Display Extracted Prices
         st.subheader("🔎 Extracted from Website")
         cur = price_data.get('currency', 'USD')
         p_adult = price_data.get('adult_price', 0.0)
@@ -584,8 +598,8 @@ def render_output(json_text, url_input=None):
         st.caption(f"Raw Details: {price_data.get('details', '')}")
         st.divider()
 
-        # 2. Calculator (Pre-filled with Adult Price)
         st.subheader("🧮 Net Rate Calculator")
+        # Pre-fill calculator with found adult price
         calc_price = st.number_input("🏷️ Merchant Public Price", min_value=0.0, value=float(p_adult) if p_adult else 100.0, step=1.0)
         margin_pct = st.number_input("📉 Target Margin (%)", min_value=0.0, max_value=100.0, value=20.0, step=0.5)
         
@@ -642,7 +656,20 @@ def smart_rotation_wrapper(text, keys, lang="English"):
             if result == "429_LIMIT":
                 time.sleep(1)
                 continue
-            if "Error" not in result: return result
+            if "Error" not in result: 
+                # POST-PROCESSING FOR WORD COUNT DISPLAY
+                try:
+                    d = json.loads(result)
+                    if "basic_info" in d and "what_to_expect" in d["basic_info"]:
+                        wte = d["basic_info"]["what_to_expect"]
+                        # Enforce removal of last period
+                        if wte.endswith("."): wte = wte[:-1]
+                        count = len(wte.split())
+                        # Append count to string for Copy/Display
+                        d["basic_info"]["what_to_expect"] = f"{wte} ({count} words)"
+                        result = json.dumps(d)
+                except: pass
+                return result
     return "⚠️ Server Busy. Try again."
 
 # --- MAIN APP LOGIC ---
