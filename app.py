@@ -381,29 +381,86 @@ def copy_box(label, text, height=None):
     st.caption(f"**{label}**")
     st.code(str(text), language="text") 
 
-# --- POPUP DIALOG FUNCTION ---
-@st.dialog("📋 Quick Copy-Paste")
+# --- POPUP DIALOG FUNCTION (EXPANDED) ---
+@st.dialog("📋 Full Data for Copy-Paste")
 def show_copy_dialog(data):
     info = data.get("basic_info", {})
-    st.success("Click the copy icon 📄 in the top-right of the box.")
+    itin = data.get("klook_itinerary", {})
+    pol = data.get("policies", {})
+    res = data.get("restrictions", {})
+    seo = data.get("seo", {})
+    inc = data.get("inclusions", {})
     
-    st.caption("**1. Activity Name**")
+    st.info("💡 Scroll down to see all sections (Itinerary, Policies, SEO, etc).")
+    
+    # 1. BASIC INFO
+    st.subheader("1. Basic Information")
+    st.caption("**Activity Name**")
     st.code(info.get('main_attractions', ''), language='text')
     
-    st.caption("**2. Highlights**")
+    st.caption("**Highlights**")
     hl_text = "\n".join([f"• {h}" for h in info.get('highlights', [])])
     st.code(hl_text, language='text')
     
-    st.caption("**3. Description (What to Expect)**")
+    st.caption("**Description (What to Expect)**")
     st.code(info.get('what_to_expect', ''), language='text')
     
-    st.caption("**4. Inclusions**")
-    inc_text = "\n".join([f"• {x}" for x in data.get('inclusions', {}).get('included', [])])
+    st.caption("**Duration**")
+    st.code(info.get('duration', ''), language='text')
+    
+    st.caption("**Selling Points**")
+    sp_text = ", ".join(info.get('selling_points', []))
+    st.code(sp_text, language='text')
+
+    st.divider()
+
+    # 2. ITINERARY
+    st.subheader("2. Itinerary Details")
+    start = itin.get('start', {})
+    end = itin.get('end', {})
+    segments = itin.get('segments', [])
+    
+    # Build text block for itinerary
+    itin_text = f"START: {start.get('time', '')} - {start.get('location', '')}\n\n"
+    for seg in segments:
+        itin_text += f"{seg.get('time', '')} - {seg.get('type')}: {seg.get('name')}\n"
+        if seg.get('details'): itin_text += f"   ({seg.get('details')})\n"
+    itin_text += f"\nEND: {end.get('time', '')} - {end.get('location', '')}"
+    
+    st.caption("**Full Itinerary (Text Format)**")
+    st.code(itin_text, language='text')
+
+    st.divider()
+
+    # 3. POLICIES & RESTRICTIONS
+    st.subheader("3. Policies & Restrictions")
+    
+    st.caption("**Inclusions**")
+    inc_text = "\n".join([f"• {x}" for x in inc.get('included', [])])
     st.code(inc_text, language='text')
     
-    st.caption("**5. Exclusions**")
-    exc_text = "\n".join([f"• {x}" for x in data.get('inclusions', {}).get('excluded', [])])
+    st.caption("**Exclusions**")
+    exc_text = "\n".join([f"• {x}" for x in inc.get('excluded', [])])
     st.code(exc_text, language='text')
+    
+    st.caption("**Cancellation Policy**")
+    st.code(pol.get('cancellation', ''), language='text')
+    
+    st.caption("**Child Policy**")
+    st.code(res.get('child_policy', ''), language='text')
+    
+    st.caption("**Accessibility**")
+    st.code(res.get('accessibility', ''), language='text')
+
+    st.divider()
+
+    # 4. SEO & CONTACT
+    st.subheader("4. SEO & Admin")
+    st.caption("**Keywords**")
+    st.code(str(seo.get("keywords", [])), language='text')
+    
+    st.caption("**Merchant Contact**")
+    st.code(pol.get('merchant_contact', ''), language='text')
 
 # --- UI RENDERER ---
 def render_output(json_text, url_input=None):
@@ -432,9 +489,9 @@ def render_output(json_text, url_input=None):
     pol = data.get("policies", {})
     seo = data.get("seo", {})
 
-    # --- MAIN PAGE POPUP BUTTON (MOVED HERE!) ---
+    # --- MAIN PAGE POPUP BUTTON ---
     st.success("✅ Analysis Complete!")
-    if st.button("🚀 Open Quick-Copy Popup", type="primary", use_container_width=True):
+    if st.button("🚀 Open Full Data Popup", type="primary", use_container_width=True):
         show_copy_dialog(data)
     st.divider()
 
