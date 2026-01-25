@@ -295,7 +295,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
-    # UPDATED WORD COUNT INSTRUCTIONS
+    # UPDATED PROMPT: Strict Words + Pricing Array
     intro_prompt = f"""
     You are a content specialist for Klook.
     **TASK:** Convert tour text into strict JSON.
@@ -303,38 +303,32 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     
     **CRITICAL RULE - ROMAN CHARACTERS ONLY:**
     If translating to English, you MUST use strict ASCII/Roman characters (A-Z).
-    - Remove accents: 'ñ' -> 'n', 'é' -> 'e', 'ü' -> 'u', 'ç' -> 'c'.
-    - Transliterate names: 'Düsseldorf' -> 'Dusseldorf', 'São Paulo' -> 'Sao Paulo'.
+    - Remove accents: 'ñ' -> 'n', 'é' -> 'e'.
     
     **CRITICAL ACCURACY RULES:**
-    1. **NO HALLUCINATION:** If pickup info or duration is not in the text, return "TBC" or null. Do not guess based on similar tours.
-    2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-120 words**. 
+    1. **NO HALLUCINATION:** If pickup info or duration is not in the text, return "TBC".
+    2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-120 words**. Count your words. If you go over 120, delete sentences.
     3. **NO FULL STOP:** The 'what_to_expect' paragraph MUST NOT end with a full stop (period).
     
-    **FORMATTING RULES:**
-    1. **Highlights:** Exactly 4-5 bullet points (10-12 words each). No full stops.
-    2. **Phone:** Format as +X-XXX-XXX-XXXX.
-    3. **Itinerary POIs:** Indicate if "Free Entry" or "Ticket Required" in the 'ticket_status' field. If unknown, use "Unknown".
-    4. **Selling Points:** Choose only from the allowed list.
-    
-    **ALLOWED SELLING POINTS:**
-    {SELLING_POINTS_LIST}
+    **PRICING EXTRACTION:**
+    - Look for Adult, Child, and Infant prices. Extract them as numbers (e.g. 50.0).
+    - Detect the Currency Code (e.g. USD, EUR, AUD).
     
     **REQUIRED JSON STRUCTURE:**
     {{
         "basic_info": {{
             "city_country": "City, Country",
             "group_type": "Private/Join-in",
-            "duration": "Extract EXACT text (e.g. 3 hours)",
+            "duration": "Duration",
             "main_attractions": "Tour Name",
             "highlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],
             "what_to_expect": "Strictly 100-120 words. No final full stop",
             "selling_points": ["Tag 1", "Tag 2"]
         }},
         "klook_itinerary": {{
-            "start": {{ "time": "09:00", "location": "Meeting Point Name (Use TBC if missing)" }},
+            "start": {{ "time": "09:00", "location": "Meeting Point" }},
             "segments": [
-                {{ "type": "Attraction", "time": "10:00", "name": "Name", "details": "Details", "location_search": "Search Term", "ticket_status": "Free Entry/Ticket Required/Unknown" }}
+                {{ "type": "Attraction", "time": "10:00", "name": "Name", "details": "Details", "location_search": "Search Term", "ticket_status": "Free/Ticket" }}
             ],
             "end": {{ "time": "17:00", "location": "Drop off" }}
         }},
@@ -342,7 +336,13 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
         "inclusions": {{ "included": ["Item 1"], "excluded": ["Item 2"] }},
         "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": ["FAQ content"] }},
         "seo": {{ "keywords": ["Key 1"] }},
-        "pricing": {{ "details": "Price info" }},
+        "pricing": {{ 
+            "details": "Original text string",
+            "currency": "USD",
+            "adult_price": 0.0,
+            "child_price": 0.0,
+            "infant_price": 0.0
+        }},
         "analysis": {{ "ota_search_term": "Product Name" }}
     }}
     **INPUT TEXT:**
@@ -358,11 +358,7 @@ def call_gemini_email_draft(json_data, api_key):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
-    prompt = f"""
-    Draft a concise GAP ANALYSIS email to the Merchant.
-    ONLY Request MISSING information. Do NOT summarize.
-    Detect missing fields in: {json.dumps(json_data)}
-    """
+    prompt = f"Draft a concise GAP ANALYSIS email. Request MISSING info only. Data: {json.dumps(json_data)}"
     try:
         response = model.generate_content(prompt)
         return response.text
@@ -373,15 +369,7 @@ def call_gemini_caption(image_bytes, api_key, context_str=""):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
-    prompt = f"""
-    Write a social media caption for this image.
-    **CONTEXT:** This is a tour of: '{context_str}'. Make the caption specific to this activity/location if possible.
-    **RULES:**
-    1. Strictly 10-12 words.
-    2. Start with an experiential verb.
-    3. NO full stop at the end.
-    4. No emojis.
-    """
+    prompt = f"Social media caption (10-12 words, experiential verb start, NO full stop, no emojis). Context: '{context_str}'"
     try:
         response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
         return response.text
@@ -404,76 +392,51 @@ def show_copy_dialog(data):
     seo = data.get("seo", {})
     inc = data.get("inclusions", {})
     
-    st.info("💡 Scroll down to see all sections (Itinerary, Policies, SEO, etc).")
-    
+    st.info("💡 Scroll down to see all sections.")
     def clean(t): return romanize_text(str(t)) if t else ""
 
-    # 1. BASIC INFO
     st.subheader("1. Basic Information")
     st.caption("**Activity Name**")
     st.code(clean(info.get('main_attractions')), language='text')
-    
     st.caption("**Highlights**")
     hl_text = "\n".join([f"• {clean(h)}" for h in info.get('highlights', [])])
     st.code(hl_text, language='text')
-    
-    st.caption("**Description (What to Expect)**")
+    st.caption("**Description**")
     st.code(clean(info.get('what_to_expect')), language='text')
-    
     st.caption("**Duration**")
     st.code(clean(info.get('duration')), language='text')
-    
     st.caption("**Selling Points**")
     sp_text = ", ".join([clean(s) for s in info.get('selling_points', [])])
     st.code(sp_text, language='text')
 
     st.divider()
-
-    # 2. ITINERARY
     st.subheader("2. Itinerary Details")
     start = itin.get('start', {})
     end = itin.get('end', {})
     segments = itin.get('segments', [])
-    
     itin_text = f"START: {clean(start.get('time'))} - {clean(start.get('location'))}\n\n"
     for seg in segments:
         itin_text += f"{clean(seg.get('time'))} - {clean(seg.get('type'))}: {clean(seg.get('name'))}\n"
         if seg.get('details'): itin_text += f"   ({clean(seg.get('details'))})\n"
     itin_text += f"\nEND: {clean(end.get('time'))} - {clean(end.get('location'))}"
-    
-    st.caption("**Full Itinerary (Text Format)**")
     st.code(itin_text, language='text')
 
     st.divider()
-
-    # 3. POLICIES & RESTRICTIONS
     st.subheader("3. Policies & Restrictions")
-    
     st.caption("**Inclusions**")
     inc_text = "\n".join([f"• {clean(x)}" for x in inc.get('included', [])])
     st.code(inc_text, language='text')
-    
     st.caption("**Exclusions**")
     exc_text = "\n".join([f"• {clean(x)}" for x in inc.get('excluded', [])])
     st.code(exc_text, language='text')
-    
     st.caption("**Cancellation Policy**")
     st.code(clean(pol.get('cancellation')), language='text')
-    
     st.caption("**Child Policy**")
     st.code(clean(res.get('child_policy')), language='text')
-    
-    st.caption("**Accessibility**")
-    st.code(clean(res.get('accessibility')), language='text')
 
     st.divider()
-
-    # 4. SEO & CONTACT
-    st.subheader("4. SEO & Admin")
-    st.caption("**Keywords**")
+    st.subheader("4. SEO & Contact")
     st.code(clean(str(seo.get("keywords", []))), language='text')
-    
-    st.caption("**Merchant Contact**")
     st.code(clean(pol.get('merchant_contact')), language='text')
 
 # --- UI RENDERER ---
@@ -502,33 +465,24 @@ def render_output(json_text, url_input=None):
     inc = data.get("inclusions", {})
     pol = data.get("policies", {})
     seo = data.get("seo", {})
+    price_data = data.get("pricing", {})
 
-    # --- MAIN PAGE POPUP BUTTON ---
     st.success("✅ Analysis Complete!")
     if st.button("🚀 Open Full Data Popup", type="primary", use_container_width=True):
         show_copy_dialog(data)
     st.divider()
 
-    # --- SIDEBAR ---
     with st.sidebar:
         st.header("📋 Copy Dashboard")
         copy_box("📍 Location", info.get('city_country'))
         copy_box("🏷️ Name", info.get('main_attractions'))
         copy_box("📞 Phone", pol.get('merchant_contact'))
-        
         st.divider()
-        
         if HAS_REPORTLAB:
             pdf_data = create_pdf(data)
             if pdf_data:
-                st.download_button(
-                    label="📄 Download Summary PDF",
-                    data=pdf_data,
-                    file_name=f"Klook_Summary_{int(time.time())}.pdf",
-                    mime="application/pdf"
-                )
+                st.download_button("📄 Download Summary PDF", pdf_data, f"Klook_Summary_{int(time.time())}.pdf", "application/pdf")
 
-    # --- TABS ---
     tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Klook Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis", "📧 Supplier Email", "🔧 Automation"]
     tabs = st.tabs(tab_names)
 
@@ -559,19 +513,14 @@ def render_output(json_text, url_input=None):
 
     with tabs[2]:
         itin = data.get("klook_itinerary", {})
-        start = itin.get("start", {})
-        end = itin.get("end", {})
         segments = itin.get("segments", [])
-
         st.markdown(f"""<div class="timeline-step" style="border-left-color: #4CAF50;"><span class="timeline-time">{start.get('time')}</span><br><span class="timeline-title">🏁 Departure Info</span><br><span style="font-size:0.9rem">{start.get('location')}</span></div>""", unsafe_allow_html=True)
-
         for seg in segments:
             sType = seg.get('type', 'Attraction')
             sName = seg.get('name', 'Activity')
             sTime = seg.get('time', '')
             sDet = seg.get('details', '')
             sTicket = seg.get('ticket_status', 'Unknown')
-            
             sLoc = seg.get('location_search', '')
             map_btn = ""
             if sLoc:
@@ -585,13 +534,10 @@ def render_output(json_text, url_input=None):
             color = "#ff5722"
             if "Transport" in sType: icon="🚌"; color="#2196F3"
             if "Meal" in sType: icon="🍽️"; color="#9C27B0"
-            
             ticket_badge = ""
             if sTicket and "Free" in sTicket: ticket_badge = f" <span style='background:#E8F5E9; color:#2E7D32; padding:2px 6px; border-radius:4px; font-size:0.8rem'>🆓 {sTicket}</span>"
             elif sTicket and "Unknown" not in sTicket: ticket_badge = f" <span style='background:#FFF3E0; color:#EF6C00; padding:2px 6px; border-radius:4px; font-size:0.8rem'>🎫 {sTicket}</span>"
-
             st.markdown(f"""<div class="timeline-step" style="border-left-color: {color};"><span class="timeline-time">{sTime}</span> <br><span class="timeline-title">{icon} {sType}: {sName}</span> {ticket_badge} {map_btn}<br><span style="font-size:0.9rem; color:#666;">{sDet}</span></div>""", unsafe_allow_html=True)
-
         st.markdown(f"""<div class="timeline-step" style="border-left-color: #F44336;"><span class="timeline-time">{end.get('time')}</span><br><span class="timeline-title">🏁 Return Info</span><br><span style="font-size:0.9rem">{end.get('location')}</span></div>""", unsafe_allow_html=True)
 
     with tabs[3]:
@@ -620,20 +566,34 @@ def render_output(json_text, url_input=None):
 
     with tabs[6]: st.code(str(seo.get("keywords")))
     
+    # --- UPDATED PRICE TAB ---
     with tabs[7]:
         st.header("💰 Price & Margin Calculator")
-        c1, c2 = st.columns(2)
-        with c1:
-            public_price = st.number_input("🏷️ Merchant Public Price", min_value=0.0, value=100.0, step=1.0)
-        with c2:
-            margin_pct = st.number_input("📉 Target Margin (%)", min_value=0.0, max_value=100.0, value=20.0, step=0.5)
         
-        net_rate = public_price * (1 - (margin_pct / 100))
-        profit = public_price - net_rate
+        # 1. Display Extracted Prices
+        st.subheader("🔎 Extracted from Website")
+        cur = price_data.get('currency', 'USD')
+        p_adult = price_data.get('adult_price', 0.0)
+        p_child = price_data.get('child_price', 0.0)
+        p_infant = price_data.get('infant_price', 0.0)
         
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Adult Price", f"{cur} {p_adult}")
+        c2.metric("Child Price", f"{cur} {p_child}")
+        c3.metric("Infant Price", f"{cur} {p_infant}")
+        st.caption(f"Raw Details: {price_data.get('details', '')}")
         st.divider()
+
+        # 2. Calculator (Pre-filled with Adult Price)
+        st.subheader("🧮 Net Rate Calculator")
+        calc_price = st.number_input("🏷️ Merchant Public Price", min_value=0.0, value=float(p_adult) if p_adult else 100.0, step=1.0)
+        margin_pct = st.number_input("📉 Target Margin (%)", min_value=0.0, max_value=100.0, value=20.0, step=0.5)
+        
+        net_rate = calc_price * (1 - (margin_pct / 100))
+        profit = calc_price - net_rate
+        
         k1, k2, k3 = st.columns(3)
-        k1.metric("🛒 Klook Sell Price", f"{public_price:,.2f}")
+        k1.metric("🛒 Klook Sell Price", f"{calc_price:,.2f}")
         k2.metric("💵 Net Rate (Cost)", f"{net_rate:,.2f}")
         k3.metric("📈 Profit / Booking", f"{profit:,.2f}")
     
@@ -649,7 +609,6 @@ def render_output(json_text, url_input=None):
             with c1: st.link_button("🟢 Viator", f"https://www.viator.com/searchResults/all?text={encoded_term}")
             with c2: st.link_button("🔵 GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_term}")
             with c3: st.link_button("🟠 Klook", f"https://www.google.com/search?q={urllib.parse.quote('site:klook.com ' + search_term)}")
-        
         if url_input:
             try:
                 domain = urllib.parse.urlparse(url_input).netloc.replace("www.", "")
