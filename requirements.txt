@@ -6,3 +6,4 @@ pypdf
 python-docx
 Pillow
 pypdf
+pip install pdfplumber
