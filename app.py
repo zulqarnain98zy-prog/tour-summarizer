@@ -32,11 +32,21 @@ try:
 except ImportError:
     HAS_REPORTLAB = False
 
+# --- PDF LIBRARY LOADER (Robust Fallback) ---
+HAS_PYPDF = False
+HAS_PDFPLUMBER = False
+
+try:
+    import pdfplumber
+    HAS_PDFPLUMBER = True
+except ImportError:
+    pass
+
 try:
     from pypdf import PdfReader
     HAS_PYPDF = True
 except ImportError:
-    HAS_PYPDF = False
+    pass
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="Klook Magic Tool", page_icon="⭐", layout="wide")
@@ -152,18 +162,42 @@ def extract_data_from_url(url):
         return {"text": clean_text, "images": found_images}, None
     except Exception as e: return None, f"ERROR: {str(e)}"
 
-# --- PDF READER ---
+# --- ROBUST PDF READER ---
 def extract_text_from_pdf(uploaded_file):
-    if not HAS_PYPDF:
-        return "⚠️ Error: 'pypdf' library not installed. Please add 'pypdf' to requirements.txt."
-    try:
-        reader = PdfReader(uploaded_file)
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text() + "\n"
-        return text[:100000] # Limit char count
-    except Exception as e:
-        return f"Error reading PDF: {str(e)}"
+    text = ""
+    error_log = ""
+    
+    # METHOD 1: PDFPLUMBER (Best for layout accuracy)
+    if HAS_PDFPLUMBER:
+        try:
+            with pdfplumber.open(uploaded_file) as pdf:
+                for page in pdf.pages:
+                    extracted = page.extract_text()
+                    if extracted: text += extracted + "\n"
+            if len(text) > 10: return text[:100000]
+        except Exception as e:
+            error_log += f"Plumber failed: {str(e)}. "
+
+    # METHOD 2: PYPDF (Fallback)
+    if HAS_PYPDF:
+        try:
+            # Reset file pointer if previous read moved it
+            uploaded_file.seek(0)
+            reader = PdfReader(uploaded_file)
+            for page in reader.pages:
+                # Try plain mode to avoid 'bbox' errors
+                try:
+                    text += page.extract_text() + "\n"
+                except:
+                    pass 
+            if len(text) > 10: return text[:100000]
+        except Exception as e:
+            error_log += f"PyPDF failed: {str(e)}."
+            
+    if not text:
+        return f"⚠️ Error reading PDF. Please install 'pdfplumber' for better support.\nDetails: {error_log}"
+    
+    return text[:100000]
 
 # --- PDF GENERATOR (REPORTLAB) ---
 def create_pdf(data):
@@ -634,6 +668,7 @@ with t2:
                 if "basic_info" in d: st.session_state['product_context'] = d["basic_info"].get("main_attractions", "")
             except: pass
 
+# --- PDF TAB ---
 with t3:
     st.info("Upload a PDF brochure or document to summarize.")
     pdf_file = st.file_uploader("Upload PDF", type=['pdf'])
