@@ -1,9 +1,10 @@
 streamlit
-cloudscraper
+google-generativeai
 beautifulsoup4
-google-generativeai>=0.5.0
-pypdf
-python-docx
+cloudscraper
+requests
 Pillow
+reportlab
 pypdf
-pip install pdfplumber
+pdfplumber
+urllib3
