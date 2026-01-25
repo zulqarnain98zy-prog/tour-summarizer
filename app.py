@@ -32,7 +32,7 @@ try:
 except ImportError:
     HAS_REPORTLAB = False
 
-# --- PDF LIBRARY LOADER (Robust Fallback) ---
+# --- PDF LIBRARY LOADER ---
 HAS_PYPDF = False
 HAS_PDFPLUMBER = False
 
@@ -167,7 +167,6 @@ def extract_text_from_pdf(uploaded_file):
     text = ""
     error_log = ""
     
-    # METHOD 1: PDFPLUMBER (Best for layout accuracy)
     if HAS_PDFPLUMBER:
         try:
             with pdfplumber.open(uploaded_file) as pdf:
@@ -178,18 +177,13 @@ def extract_text_from_pdf(uploaded_file):
         except Exception as e:
             error_log += f"Plumber failed: {str(e)}. "
 
-    # METHOD 2: PYPDF (Fallback)
     if HAS_PYPDF:
         try:
-            # Reset file pointer if previous read moved it
             uploaded_file.seek(0)
             reader = PdfReader(uploaded_file)
             for page in reader.pages:
-                # Try plain mode to avoid 'bbox' errors
-                try:
-                    text += page.extract_text() + "\n"
-                except:
-                    pass 
+                try: text += page.extract_text() + "\n"
+                except: pass 
             if len(text) > 10: return text[:100000]
         except Exception as e:
             error_log += f"PyPDF failed: {str(e)}."
@@ -199,7 +193,7 @@ def extract_text_from_pdf(uploaded_file):
     
     return text[:100000]
 
-# --- PDF GENERATOR (REPORTLAB) ---
+# --- PDF GENERATOR ---
 def create_pdf(data):
     if not HAS_REPORTLAB:
         return None
@@ -209,62 +203,45 @@ def create_pdf(data):
     styles = getSampleStyleSheet()
     story = []
 
-    # Custom Styles
     title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=16, spaceAfter=12, textColor=colors.darkorange)
     heading_style = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=12, spaceBefore=10, spaceAfter=6, textColor=colors.black)
     body_style = styles['BodyText']
     bullet_style = ParagraphStyle('Bullet', parent=styles['BodyText'], leftIndent=20)
 
-    # 1. HEADER
     info = data.get('basic_info', {})
     story.append(Paragraph(f"{info.get('main_attractions', 'Tour Summary')}", title_style))
     story.append(Paragraph(f"<b>Location:</b> {info.get('city_country')} | <b>Duration:</b> {info.get('duration')}", body_style))
     story.append(Spacer(1, 12))
 
-    # 2. HIGHLIGHTS
     story.append(Paragraph("✨ Highlights", heading_style))
     highlights = info.get('highlights', [])
     if highlights:
         bullets = [ListItem(Paragraph(h, body_style)) for h in highlights]
         story.append(ListFlowable(bullets, bulletType='bullet', start='•'))
 
-    # 3. DESCRIPTION
     story.append(Paragraph("📝 What to Expect", heading_style))
     story.append(Paragraph(info.get('what_to_expect', ''), body_style))
 
-    # 4. ITINERARY
     story.append(Paragraph("🗺️ Itinerary", heading_style))
     itin = data.get('klook_itinerary', {})
     segments = itin.get('segments', [])
-    
-    # Start
     start = itin.get('start', {})
     story.append(Paragraph(f"<b>{start.get('time', '')}</b> - Start at {start.get('location', '')}", body_style))
-    
-    # Segments
     for seg in segments:
         text = f"<b>{seg.get('time', '')}</b> - {seg.get('type')}: {seg.get('name')}"
-        if seg.get('details'):
-            text += f"<br/><i>{seg.get('details')}</i>"
+        if seg.get('details'): text += f"<br/><i>{seg.get('details')}</i>"
         story.append(Paragraph(text, bullet_style))
-    
-    # End
     end = itin.get('end', {})
     story.append(Paragraph(f"<b>{end.get('time', '')}</b> - End at {end.get('location', '')}", body_style))
 
-    # 5. INCLUSIONS / EXCLUSIONS
     inc = data.get('inclusions', {})
-    
     story.append(Paragraph("✅ Included", heading_style))
-    included = inc.get('included', [])
-    if included:
-        bullets = [ListItem(Paragraph(x, body_style)) for x in included]
+    if inc.get('included'):
+        bullets = [ListItem(Paragraph(x, body_style)) for x in inc.get('included', [])]
         story.append(ListFlowable(bullets, bulletType='bullet', start='•'))
-        
     story.append(Paragraph("❌ Excluded", heading_style))
-    excluded = inc.get('excluded', [])
-    if excluded:
-        bullets = [ListItem(Paragraph(x, body_style)) for x in excluded]
+    if inc.get('excluded'):
+        bullets = [ListItem(Paragraph(x, body_style)) for x in inc.get('excluded', [])]
         story.append(ListFlowable(bullets, bulletType='bullet', start='•'))
 
     doc.build(story)
@@ -367,15 +344,10 @@ def call_gemini_email_draft(json_data, api_key):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
-    
     prompt = f"""
-    You are a Klook Onboarding Specialist. 
-    **TASK:** Draft a concise GAP ANALYSIS email to the Merchant.
-    **GOAL:** ONLY Request MISSING or VAGUE information. 
-    **RULES:**
-    1. Do NOT summarize the tour.
-    2. Ask to confirm Duration and Price.
-    3. Detect missing/null fields in this JSON: {json.dumps(json_data)}
+    Draft a concise GAP ANALYSIS email to the Merchant.
+    ONLY Request MISSING information. Do NOT summarize.
+    Detect missing fields in: {json.dumps(json_data)}
     """
     try:
         response = model.generate_content(prompt)
@@ -387,16 +359,7 @@ def call_gemini_caption(image_bytes, api_key, context_str=""):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
-    
-    prompt = f"""
-    Write a social media caption for this image.
-    **CONTEXT:** This is a tour of: '{context_str}'. Make the caption specific to this activity/location if possible.
-    **RULES:**
-    1. Strictly 10-12 words.
-    2. Start with an experiential verb.
-    3. NO full stop at the end.
-    4. No emojis.
-    """
+    prompt = f"Write a social media caption (10-12 words, experiential verb start, NO full stop, no emojis). Context: '{context_str}'"
     try:
         response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
         return response.text
@@ -407,6 +370,30 @@ def copy_box(label, text, height=None):
     if not text: return
     st.caption(f"**{label}**")
     st.code(str(text), language="text") 
+
+# --- POPUP DIALOG FUNCTION ---
+@st.dialog("📋 Quick Copy-Paste")
+def show_copy_dialog(data):
+    info = data.get("basic_info", {})
+    st.success("Click the copy icon 📄 in the top-right of the box.")
+    
+    st.caption("**1. Activity Name**")
+    st.code(info.get('main_attractions', ''), language='text')
+    
+    st.caption("**2. Highlights**")
+    hl_text = "\n".join([f"• {h}" for h in info.get('highlights', [])])
+    st.code(hl_text, language='text')
+    
+    st.caption("**3. Description (What to Expect)**")
+    st.code(info.get('what_to_expect', ''), language='text')
+    
+    st.caption("**4. Inclusions**")
+    inc_text = "\n".join([f"• {x}" for x in data.get('inclusions', {}).get('included', [])])
+    st.code(inc_text, language='text')
+    
+    st.caption("**5. Exclusions**")
+    exc_text = "\n".join([f"• {x}" for x in data.get('inclusions', {}).get('excluded', [])])
+    st.code(exc_text, language='text')
 
 # --- UI RENDERER ---
 def render_output(json_text, url_input=None):
@@ -423,7 +410,6 @@ def render_output(json_text, url_input=None):
     
     try:
         data = json.loads(clean_text)
-        # Update session context
         if "basic_info" in data and "main_attractions" in data["basic_info"]:
             st.session_state['product_context'] = data["basic_info"]["main_attractions"]
     except:
@@ -431,7 +417,6 @@ def render_output(json_text, url_input=None):
         st.code(json_text)
         return
         
-    # --- DEFINE VARIABLES ---
     info = data.get("basic_info", {})
     inc = data.get("inclusions", {})
     pol = data.get("policies", {})
@@ -441,25 +426,18 @@ def render_output(json_text, url_input=None):
     with st.sidebar:
         st.header("📋 Copy Dashboard")
         
+        # POPUP BUTTON
+        if st.button("🚀 Open Quick-Copy Popup", type="primary"):
+            show_copy_dialog(data)
+        
+        st.divider()
+        
         copy_box("📍 Location", info.get('city_country'))
         copy_box("🏷️ Name", info.get('main_attractions'))
-        
-        hl_list = info.get('highlights', [])
-        hl_text = "\n".join([f"• {h}" for h in hl_list])
-        copy_box("✨ Highlights", hl_text)
-        
-        copy_box("📝 Description", info.get('what_to_expect'))
-        
-        inc_list = inc.get('included', [])
-        inc_text = "\n".join([f"• {x}" for x in inc_list])
-        copy_box("✅ Included", inc_text)
-
-        copy_box("❌ Excluded", "\n".join([f"• {x}" for x in inc.get('excluded', [])]))
         copy_box("📞 Phone", pol.get('merchant_contact'))
         
         st.divider()
         
-        # --- PDF BUTTON ---
         if HAS_REPORTLAB:
             pdf_data = create_pdf(data)
             if pdf_data:
@@ -469,11 +447,9 @@ def render_output(json_text, url_input=None):
                     file_name=f"Klook_Summary_{int(time.time())}.pdf",
                     mime="application/pdf"
                 )
-        else:
-            st.warning("Install 'reportlab' to enable PDF downloads.")
 
     # --- MAIN PAGE ---
-    st.success("✅ Analysis Complete! Use the Sidebar 👈 to copy-paste.")
+    st.success("✅ Analysis Complete! Click '🚀 Open Quick-Copy Popup' in the sidebar.")
     
     # TABS
     tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Klook Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis", "📧 Supplier Email", "🔧 Automation"]
@@ -519,7 +495,6 @@ def render_output(json_text, url_input=None):
             sDet = seg.get('details', '')
             sTicket = seg.get('ticket_status', 'Unknown')
             
-            # --- MAP & OFFICIAL SITE LOGIC ---
             sLoc = seg.get('location_search', '')
             map_btn = ""
             if sLoc:
@@ -527,7 +502,6 @@ def render_output(json_text, url_input=None):
                 link = f"https://www.google.com/maps/search/?api=1&query={query}"
                 site_query = urllib.parse.quote(f"{sLoc} official website")
                 site_link = f"https://www.google.com/search?q={site_query}"
-                
                 map_btn = f' | <a href="{link}" target="_blank" style="text-decoration:none; color:#2196F3;">📍 Map</a> | <a href="{site_link}" target="_blank" style="text-decoration:none; color:#4CAF50;">🌐 Official Site</a>'
             
             icon = "🎡"
@@ -560,7 +534,6 @@ def render_output(json_text, url_input=None):
         res = data.get("restrictions", {})
         st.write(f"**Child:** {res.get('child_policy')}")
         st.write(f"**Accessibility:** {res.get('accessibility')}")
-        
         faq = res.get('faq')
         with st.expander("View FAQ", expanded=True):
             if isinstance(faq, list):
@@ -575,7 +548,6 @@ def render_output(json_text, url_input=None):
         an = data.get("analysis", {})
         search_term = an.get("ota_search_term", "")
         if not search_term: search_term = info.get('main_attractions', '')
-        
         st.write(f"**OTA Search Term:** `{search_term}`")
         if search_term:
             encoded_term = urllib.parse.quote(search_term)
@@ -668,7 +640,6 @@ with t2:
                 if "basic_info" in d: st.session_state['product_context'] = d["basic_info"].get("main_attractions", "")
             except: pass
 
-# --- PDF TAB ---
 with t3:
     st.info("Upload a PDF brochure or document to summarize.")
     pdf_file = st.file_uploader("Upload PDF", type=['pdf'])
@@ -757,7 +728,6 @@ with t4:
                         with c2:
                             caption_text = ""
                             if enable_captions and keys:
-                                # PASSING CONTEXT HERE
                                 caption_text = call_gemini_caption(b_img, random.choice(keys), context_str=manual_context)
                             
                             st.text_area(f"Caption for {fname}", value=caption_text, height=100, key=f"cap_{idx}")
