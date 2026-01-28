@@ -86,7 +86,7 @@ if 'scraped_images' not in st.session_state:
     st.session_state['scraped_images'] = []
 if 'product_context' not in st.session_state:
     st.session_state['product_context'] = ""
-if 'raw_text_content' not in st.session_state: # NEW: Store raw text for regeneration
+if 'raw_text_content' not in st.session_state:
     st.session_state['raw_text_content'] = ""
 
 # --- LOAD KEYS ---
@@ -325,14 +325,23 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-120 words**. Count your words.
     3. **NO FULL STOP:** The 'what_to_expect' paragraph MUST NOT end with a full stop (period).
     
-    **HIGHLIGHTS RULES:**
-    - Must be **specific to the activity**, not generic.
-    - Limit: 4-5 points, 10-12 words each.
-    - **CRITICAL: DO NOT END HIGHLIGHTS WITH A FULL STOP OR PERIOD.**
+    **HIGHLIGHTS RULES (STRICT):**
+    - **LENGTH:** Each bullet point must be **STRICTLY 10-12 words long**.
+    - **QUANTITY:** Generate exactly 4 bullet points.
+    - **NO FULL STOP:** Do NOT end highlights with a full stop/period.
+    - Must be specific to the activity.
     
     **SELLING POINTS:**
     - Select EXACTLY 3-5 tags from the list below. Do NOT invent new ones.
     - List: {SELLING_POINTS_LIST}
+    
+    **SETTINGS DATA (CRITICAL):**
+    - 'group_type': Infer from text. Choose ONLY one: 'Private', 'Join-in (small group)', or 'Join-in (big group)'.
+    - 'min_pax': Default to "1".
+    - 'max_pax': 
+       - If 'Join-in (small group)' -> "15"
+       - If 'Join-in (big group)' -> "99"
+       - If 'Private' -> "99"
     
     **PRICING EXTRACTION:**
     - Look for Adult, Child, and Infant prices. Extract as numbers.
@@ -342,10 +351,12 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     {{
         "basic_info": {{
             "city_country": "City, Country",
-            "group_type": "Private/Join-in",
+            "group_type": "Private/Join-in (small group)/Join-in (big group)",
+            "min_pax": "1",
+            "max_pax": "15",
             "duration": "Duration",
             "main_attractions": "Tour Name",
-            "highlights": ["Highlight 1", "Highlight 2", "Highlight 3", "Highlight 4"],
+            "highlights": ["Highlight 1 (10-12 words)", "Highlight 2 (10-12 words)", "Highlight 3", "Highlight 4"],
             "what_to_expect": "Strictly 100-120 words. No final full stop",
             "selling_points": ["Tag 1", "Tag 2"]
         }},
@@ -536,6 +547,12 @@ def render_output(json_text, url_input=None):
         st.write(f"**📍 Location:** {info.get('city_country')}")
         st.write(f"**⏳ Duration:** {info.get('duration')}")
         st.write(f"**👥 Group:** {info.get('group_type')}")
+        
+        # NEW MIN/MAX DISPLAY
+        c_min, c_max = st.columns(2)
+        c_min.metric("📉 Min Pax", info.get('min_pax', '1'))
+        c_max.metric("📈 Max Pax", info.get('max_pax', '15'))
+        
         st.divider()
         st.write("**🌟 Highlights:**")
         for h in info.get("highlights", []): st.write(f"- {h}")
@@ -709,6 +726,7 @@ def smart_rotation_wrapper(text, keys, lang="English"):
                 # POST-PROCESSING
                 try:
                     d = json.loads(result)
+                    
                     # 1. Force Clean Highlights (Remove Trailing Periods)
                     if "basic_info" in d and "highlights" in d["basic_info"]:
                         cleaned_highlights = [h.rstrip('.') for h in d["basic_info"]["highlights"]]
@@ -719,7 +737,22 @@ def smart_rotation_wrapper(text, keys, lang="English"):
                         wte = d["basic_info"]["what_to_expect"]
                         if wte.endswith("."): wte = wte[:-1]
                         d["basic_info"]["what_to_expect"] = wte
+                    
+                    # 3. FORCE FIX MIN/MAX PAX (New Logic)
+                    if "basic_info" in d:
+                        g_type = d["basic_info"].get("group_type", "").lower()
+                        d["basic_info"]["min_pax"] = "1" # Default
                         
+                        if "small" in g_type:
+                            d["basic_info"]["max_pax"] = "15"
+                        elif "private" in g_type:
+                            d["basic_info"]["max_pax"] = "99"
+                        elif "big" in g_type or "large" in g_type:
+                            d["basic_info"]["max_pax"] = "99"
+                        else:
+                            # Default fallback if unknown
+                            d["basic_info"]["max_pax"] = "99"
+
                     result = json.dumps(d)
                 except: pass
                 return result
