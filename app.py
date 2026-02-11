@@ -121,13 +121,37 @@ def romanize_text(text):
     normalized = unicodedata.normalize('NFKD', text)
     return normalized.encode('ascii', 'ignore').decode('ascii')
 
-# --- MERCHANT RISK LOGIC ---
+# --- IMPROVED MERCHANT RISK LOGIC (AUTO-HUNT VERSION) ---
 def validate_merchant_risk(text, url, api_key):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
-    # 1. Whois Check (Longevity)
+    # 1. Automatic "About Us" Hunting if text is empty
+    scraped_content = text
+    if not text and url:
+        try:
+            scraper = cloudscraper.create_scraper()
+            base_res = scraper.get(url, timeout=12)
+            soup = BeautifulSoup(base_res.content, 'html.parser')
+            
+            # Search for About/Company/Legal links
+            target_url = url
+            for link in soup.find_all('a', href=True):
+                href = link['href'].lower()
+                if any(w in href for w in ['about', 'company', 'story', 'legal', 'who-we-are']):
+                    target_url = urllib.parse.urljoin(url, link['href'])
+                    break
+            
+            # Scrape the discovered page
+            final_res = scraper.get(target_url, timeout=12)
+            final_soup = BeautifulSoup(final_res.content, 'html.parser')
+            for s in final_soup(["script", "style", "noscript"]): s.extract()
+            scraped_content = final_soup.get_text(separator=' ')[:15000]
+        except:
+            pass
+
+    # 2. Whois Check (Longevity)
     domain_years = "Unknown"
     if HAS_WHOIS and url:
         try:
@@ -137,18 +161,27 @@ def validate_merchant_risk(text, url, api_key):
             domain_years = (datetime.now() - c_date).days // 365
         except: pass
 
-    # 2. Gemini Analysis
+    # 3. Gemini Risk Analysis Prompt (Optimized for Klook Screenshots)
     prompt = f"""
-    Analyze the following merchant website text for risk and legitimacy.
+    Analyze this merchant website for Klook onboarding risk.
     URL: {url}
-    TEXT: {text[:10000]}
+    CONTENT: {scraped_content[:10000]}
     
-    Return JSON with:
-    - "legitimacy_score": 1-100
-    - "red_flags": [List of concerns like 'No physical address', 'Generic template', 'Unclear refund policy']
-    - "strengths": [List of positives like 'Clear contact details', 'Established brand']
-    - "recommendation": "Approve", "Waitlist", or "Reject"
-    - "summary": 2 sentence overview
+    ASSESSMENT CRITERIA:
+    - Does the content match a professional tour operator or a suspicious entity?
+    - Are there clear contact details (Phone, Email, Physical Address)?
+    - Do they use professional booking systems (e.g., Bokun, Rezdy, TrekkSoft)?
+    - Is the English/Local language quality professional?
+    - Does the site look like a low-quality template?
+
+    Return JSON strictly in this format:
+    {{
+        "legitimacy_score": 1-100,
+        "red_flags": ["Concern 1", "Concern 2"],
+        "strengths": ["Positive 1", "Positive 2"],
+        "recommendation": "Approve/Waitlist/Reject",
+        "summary": "2-sentence overview"
+    }}
     """
     try:
         response = model.generate_content(prompt)
@@ -156,7 +189,7 @@ def validate_merchant_risk(text, url, api_key):
         res_data["domain_age"] = domain_years
         return res_data
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"AI Audit Failed: {str(e)}"}
 
 # --- IMAGE RESIZING LOGIC ---
 def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
@@ -983,11 +1016,10 @@ with t5:
         if not keys: st.error("❌ No Keys"); st.stop()
         
         with st.status("🕵️ Auditing Merchant...", expanded=True) as status:
-            # If text is empty, try scraping the URL
+            # Automatic hunting if text area is blank
             if not m_text and m_url:
-                status.write("🕷️ Scraping merchant site...")
-                m_data, err = extract_data_from_url(m_url)
-                if not err: m_text = m_data['text']
+                status.write("🕷️ Hunting for 'About Us' pages...")
+                # Automatic background scrape of the discovered About page occurs in validate_merchant_risk
             
             status.write("🧠 Analyzing trust signals...")
             risk_res = validate_merchant_risk(m_text, m_url, random.choice(keys))
