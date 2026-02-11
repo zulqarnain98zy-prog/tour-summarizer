@@ -391,7 +391,7 @@ Hot Spring, Beach, Yoga, Meditation,
 City, Countryside, Night, Shopping, Sightseeing, Photography, Self-guided, Shore Excursion, Adventure, Discovery, Backstreets, Hidden Gems
 """
 
-# --- GEMINI CALLS ---
+# --- GEMINI CALLS (UPDATED PROMPT) ---
 def call_gemini_json_summary(text, api_key, target_lang="English"):
     model_name = get_working_model_name(api_key)
     if not model_name: return "Error: No available Gemini models found."
@@ -422,13 +422,18 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - Select EXACTLY 3-5 tags from the list below. Do NOT invent new ones.
     - List: {SELLING_POINTS_LIST}
     
-    **SETTINGS DATA (CRITICAL):**
+    **SETTINGS DATA (CRITICAL - READ CAREFULLY):**
     - 'group_type': Infer from text. Choose ONLY one: 'Private', 'Join-in (small group)', or 'Join-in (big group)'.
-    - 'min_pax': Default to "1".
-    - 'max_pax': 
-       - If 'Join-in (small group)' -> "15"
-       - If 'Join-in (big group)' -> "99"
-       - If 'Private' -> "99"
+    - 'min_pax': Look for minimum booking requirements. Default to "1" if not found.
+    - 'max_pax': **LOOK FOR EXPLICIT LIMITS** (e.g., "Maximum 24 guests", "Up to 12 people"). 
+       - ONLY if NO specific number is found in text, use these defaults:
+       - 'Join-in (small group)' -> "15"
+       - 'Join-in (big group)' -> "50"
+       - 'Private' -> "99"
+    
+    **ITINERARY & TIMING:**
+    - **Start Time:** If a range is given (e.g., "Pickup 7:00am - 8:00am"), extract the **START** time (e.g., "07:00"). Do NOT average them.
+    - **Format:** Use HH:MM format (24-hour clock).
     
     **PRICING EXTRACTION:**
     - Look for Adult, Child, and Infant prices. Extract as numbers.
@@ -798,7 +803,7 @@ def render_output(json_text, url_input=None):
         st.header("🔧 Automation Data")
         st.code(json.dumps(data, indent=4), language="json")
 
-# --- SMART ROTATION ---
+# --- SMART ROTATION (FIXED: REMOVED OVERWRITE LOGIC) ---
 def smart_rotation_wrapper(text, keys, lang="English"):
     if not keys: return "⚠️ No API keys found."
     random.shuffle(keys)
@@ -825,21 +830,8 @@ def smart_rotation_wrapper(text, keys, lang="English"):
                         if wte.endswith("."): wte = wte[:-1]
                         d["basic_info"]["what_to_expect"] = wte
                     
-                    # 3. FORCE FIX MIN/MAX PAX (New Logic)
-                    if "basic_info" in d:
-                        g_type = d["basic_info"].get("group_type", "").lower()
-                        d["basic_info"]["min_pax"] = "1" # Default
-                        
-                        if "small" in g_type:
-                            d["basic_info"]["max_pax"] = "15"
-                        elif "private" in g_type:
-                            d["basic_info"]["max_pax"] = "99"
-                        elif "big" in g_type or "large" in g_type:
-                            d["basic_info"]["max_pax"] = "99"
-                        else:
-                            # Default fallback if unknown
-                            d["basic_info"]["max_pax"] = "99"
-
+                    # 3. FORCE FIX MIN/MAX PAX logic REMOVED to trust AI prompt
+                    
                     result = json.dumps(d)
                 except: pass
                 return result
@@ -1128,5 +1120,3 @@ with t5:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
-
-
