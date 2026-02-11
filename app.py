@@ -18,6 +18,13 @@ import unicodedata
 from requests.adapters import HTTPAdapter
 from urllib3.poolmanager import PoolManager
 
+# --- NEW IMPORT FOR MERCHANT VALIDATION ---
+try:
+    import whois
+    HAS_WHOIS = True
+except ImportError:
+    HAS_WHOIS = False
+
 # --- TRY IMPORTING LIBRARIES ---
 try:
     from PIL import Image, ImageOps
@@ -71,6 +78,14 @@ hide_st_style = """
             .timeline-icon { font-size: 1.2rem; margin-right: 8px; }
             .timeline-time { font-weight: bold; color: #555; font-size: 0.9rem; }
             .timeline-title { font-weight: bold; font-size: 1rem; color: #333; }
+            
+            /* Risk Colors */
+            .risk-card {
+                padding: 15px;
+                border-radius: 10px;
+                margin-bottom: 10px;
+                border: 1px solid #ddd;
+            }
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
@@ -88,6 +103,8 @@ if 'product_context' not in st.session_state:
     st.session_state['product_context'] = ""
 if 'raw_text_content' not in st.session_state:
     st.session_state['raw_text_content'] = ""
+if 'merchant_result' not in st.session_state:
+    st.session_state['merchant_result'] = None
 
 # --- LOAD KEYS ---
 def get_all_keys():
@@ -103,6 +120,43 @@ def romanize_text(text):
     if not text: return ""
     normalized = unicodedata.normalize('NFKD', text)
     return normalized.encode('ascii', 'ignore').decode('ascii')
+
+# --- MERCHANT RISK LOGIC ---
+def validate_merchant_risk(text, url, api_key):
+    model_name = get_working_model_name(api_key)
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+    
+    # 1. Whois Check (Longevity)
+    domain_years = "Unknown"
+    if HAS_WHOIS and url:
+        try:
+            domain_name = urllib.parse.urlparse(url).netloc
+            w = whois.whois(domain_name)
+            c_date = w.creation_date[0] if isinstance(w.creation_date, list) else w.creation_date
+            domain_years = (datetime.now() - c_date).days // 365
+        except: pass
+
+    # 2. Gemini Analysis
+    prompt = f"""
+    Analyze the following merchant website text for risk and legitimacy.
+    URL: {url}
+    TEXT: {text[:10000]}
+    
+    Return JSON with:
+    - "legitimacy_score": 1-100
+    - "red_flags": [List of concerns like 'No physical address', 'Generic template', 'Unclear refund policy']
+    - "strengths": [List of positives like 'Clear contact details', 'Established brand']
+    - "recommendation": "Approve", "Waitlist", or "Reject"
+    - "summary": 2 sentence overview
+    """
+    try:
+        response = model.generate_content(prompt)
+        res_data = json.loads(response.text)
+        res_data["domain_age"] = domain_years
+        return res_data
+    except Exception as e:
+        return {"error": str(e)}
 
 # --- IMAGE RESIZING LOGIC ---
 def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
@@ -474,7 +528,7 @@ def show_copy_dialog(data):
     itin_text = f"START: {clean(start.get('time'))} - {clean(start.get('location'))}\n\n"
     for seg in segments:
         itin_text += f"{clean(seg.get('time'))} - {clean(seg.get('type'))}: {clean(seg.get('name'))}\n"
-        if seg.get('details'): itin_text += f"   ({clean(seg.get('details'))})\n"
+        if seg.get('details'): itin_text += f"    ({clean(seg.get('details'))})\n"
     itin_text += f"\nEND: {clean(end.get('time'))} - {clean(end.get('location'))}"
     st.code(itin_text, language='text')
 
@@ -764,7 +818,7 @@ with st.sidebar:
     target_lang = st.selectbox("🌐 Target Language", ["English", "Chinese (Traditional)", "Chinese (Simplified)", "Korean", "Japanese", "Thai", "Vietnamese", "Indonesian"])
     st.divider()
 
-t1, t2, t3, t4 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer"])
+t1, t2, t3, t4, t5 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "🛡️ Merchant Validator"])
 
 with t1:
     url = st.text_input("Paste Tour Link")
@@ -916,6 +970,55 @@ with t4:
 
             st.success("✅ All images processed!")
             st.download_button("⬇️ Download All (ZIP)", zip_buf.getvalue(), "klook_images.zip", "application/zip")
+
+# --- MERCHANT VALIDATOR TAB ---
+with t5:
+    st.header("🛡️ Merchant Risk Assessment")
+    st.info("Enter the merchant's main website or paste their 'About Us' text to check for legitimacy.")
+    m_url = st.text_input("Merchant Website URL", key="m_url")
+    m_text = st.text_area("About Us / Business Text", key="m_text")
+    
+    if st.button("🔍 Run Risk Audit"):
+        keys = get_all_keys()
+        if not keys: st.error("❌ No Keys"); st.stop()
+        
+        with st.status("🕵️ Auditing Merchant...", expanded=True) as status:
+            # If text is empty, try scraping the URL
+            if not m_text and m_url:
+                status.write("🕷️ Scraping merchant site...")
+                m_data, err = extract_data_from_url(m_url)
+                if not err: m_text = m_data['text']
+            
+            status.write("🧠 Analyzing trust signals...")
+            risk_res = validate_merchant_risk(m_text, m_url, random.choice(keys))
+            st.session_state['merchant_result'] = risk_res
+            status.update(label="✅ Audit Complete!", state="complete")
+
+    if st.session_state['merchant_result']:
+        res = st.session_state['merchant_result']
+        if "error" in res:
+            st.error(res["error"])
+        else:
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                score = res.get('legitimacy_score', 0)
+                st.metric("Legitimacy Score", f"{score}/100")
+                st.write(f"**Domain Age:** {res.get('domain_age', 'Unknown')} years")
+                
+                rec = res.get('recommendation', 'Waitlist')
+                if rec == "Approve": st.success(f"REC: {rec}")
+                elif rec == "Reject": st.error(f"REC: {rec}")
+                else: st.warning(f"REC: {rec}")
+
+            with col2:
+                st.write(f"**AI Summary:** {res.get('summary', '')}")
+                c_flags, c_strong = st.columns(2)
+                with c_flags:
+                    st.error("🚩 Red Flags")
+                    for f in res.get('red_flags', []): st.write(f"- {f}")
+                with c_strong:
+                    st.success("✅ Strengths")
+                    for s in res.get('strengths', []): st.write(f"- {s}")
 
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
