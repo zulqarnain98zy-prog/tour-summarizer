@@ -1007,19 +1007,21 @@ with t4:
 # --- MERCHANT VALIDATOR TAB ---
 with t5:
     st.header("🛡️ Merchant Risk Assessment")
-    st.info("Enter the merchant's main website or paste their 'About Us' text to check for legitimacy.")
+    st.info("Verify merchant legitimacy by checking their site, domain age, and presence on other OTAs.")
+    
+    # Inputs
+    m_name = st.text_input("Merchant Name (for OTA search)", key="m_name")
     m_url = st.text_input("Merchant Website URL", key="m_url")
-    m_text = st.text_area("About Us / Business Text", key="m_text")
+    m_text = st.text_area("About Us / Business Text (Optional - will auto-scrape if empty)", key="m_text")
     
     if st.button("🔍 Run Risk Audit"):
         keys = get_all_keys()
         if not keys: st.error("❌ No Keys"); st.stop()
+        if not m_name: st.warning("⚠️ Please enter a Merchant Name for a better audit."); st.stop()
         
         with st.status("🕵️ Auditing Merchant...", expanded=True) as status:
-            # Automatic hunting if text area is blank
             if not m_text and m_url:
                 status.write("🕷️ Hunting for 'About Us' pages...")
-                # Automatic background scrape of the discovered About page occurs in validate_merchant_risk
             
             status.write("🧠 Analyzing trust signals...")
             risk_res = validate_merchant_risk(m_text, m_url, random.choice(keys))
@@ -1031,27 +1033,41 @@ with t5:
         if "error" in res:
             st.error(res["error"])
         else:
-            col1, col2 = st.columns([1, 2])
+            # --- 1. Top Level Metrics ---
+            col1, col2, col3 = st.columns(3)
             with col1:
                 score = res.get('legitimacy_score', 0)
                 st.metric("Legitimacy Score", f"{score}/100")
+            with col2:
                 st.write(f"**Domain Age:** {res.get('domain_age', 'Unknown')} years")
-                
                 rec = res.get('recommendation', 'Waitlist')
                 if rec == "Approve": st.success(f"REC: {rec}")
                 elif rec == "Reject": st.error(f"REC: {rec}")
                 else: st.warning(f"REC: {rec}")
+            
+            # --- 2. OTA Cross-Check Section ---
+            with col3:
+                st.write("🌐 **OTA Cross-Check**")
+                if m_name:
+                    encoded_name = urllib.parse.quote(m_name)
+                    st.link_button("🔵 Search on GetYourGuide", f"https://www.getyourguide.com/s?q={encoded_name}")
+                    st.link_button("🟢 Search on Viator", f"https://www.viator.com/searchResults/all?text={encoded_name}")
+                else:
+                    st.caption("Enter name above to enable.")
 
-            with col2:
-                st.write(f"**AI Summary:** {res.get('summary', '')}")
-                c_flags, c_strong = st.columns(2)
-                with c_flags:
-                    st.error("🚩 Red Flags")
-                    for f in res.get('red_flags', []): st.write(f"- {f}")
-                with c_strong:
-                    st.success("✅ Strengths")
-                    for s in res.get('strengths', []): st.write(f"- {s}")
+            st.divider()
+
+            # --- 3. Detailed Analysis ---
+            st.write(f"**AI Summary:** {res.get('summary', '')}")
+            c_flags, c_strong = st.columns(2)
+            with c_flags:
+                st.error("🚩 Red Flags")
+                for f in res.get('red_flags', []): st.write(f"- {f}")
+            with c_strong:
+                st.success("✅ Strengths")
+                for s in res.get('strengths', []): st.write(f"- {s}")
 
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
