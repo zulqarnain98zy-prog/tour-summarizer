@@ -308,7 +308,7 @@ t1, t2, t3, t4, t5, t6 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "
 
 # (Tabs t1-t4 follow your original structure)
 
-# --- TAB 6: GRAMMAR & WORD COUNT ---
+# --- TAB 5: GRAMMAR & WORD COUNT ---
 with t6:
     st.header("✍️ American English Grammar Checker")
     gram_text = st.text_area("Paste Text to Check:", height=200, key="gram_input")
@@ -329,7 +329,7 @@ with t6:
                 c2.metric("Char Count", c_count)
                 st.code(fixed, language="text")
                 
-# --- TAB 5: MERCHANT VALIDATOR (RESTORED FLAGS & EXPANDED CATS) ---
+# --- TAB 6: MERCHANT VALIDATOR (RESTORED FLAGS & EXPANDED CATS) ---
 with t5:
     st.header("🛡️ Merchant Risk Assessment")
     m_url = st.text_input("Merchant Website URL", key="m_url")
@@ -375,4 +375,5 @@ with t5:
 if st.session_state['gen_result']:
     # Assuming render_output is defined as per your previous code
     pass
+
 
