@@ -224,26 +224,37 @@ class LegacySSLAdapter(HTTPAdapter):
             ssl_context=ctx
         )
 
-# --- SCRAPER ---
+# --- SCRAPER (ROBUST) ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def extract_data_from_url(url):
+    # Setup User Agents to rotate
+    user_agents = [
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0'
+    ]
+    
+    headers = {
+        'User-Agent': random.choice(user_agents),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.google.com/'
+    }
+
     try:
-        scraper = cloudscraper.create_scraper(
-            browser={'browser': 'chrome','platform': 'windows','desktop': True}
-        )
-        scraper.mount('https://', LegacySSLAdapter())
-        
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Referer': 'https://www.google.com/'
-        }
-        
-        response = scraper.get(url, headers=headers, timeout=20)
-        
+        # ATTEMPT 1: Cloudscraper
+        try:
+            scraper = cloudscraper.create_scraper(
+                browser={'browser': 'chrome','platform': 'windows','desktop': True}
+            )
+            scraper.mount('https://', LegacySSLAdapter())
+            response = scraper.get(url, headers=headers, timeout=30) 
+        except Exception:
+            # ATTEMPT 2: Standard Requests Fallback
+            response = requests.get(url, headers=headers, timeout=30, verify=False) 
+
         if response.status_code == 403:
-            return None, "⛔ **Access Denied (403):** This website blocks AI bots. Please use the **'✍🏻 Text Summary'** tab instead."
+            return None, "⛔ **Access Denied (403):** This website has a strong firewall. Please copy the text manually and use the **'✍🏻 Text Summary'** tab."
             
         if response.status_code != 200: 
             return None, f"ERROR: Status Code {response.status_code}"
@@ -270,7 +281,9 @@ def extract_data_from_url(url):
         clean_text = '\n'.join(line for line in lines if line)[:100000] 
         
         return {"text": clean_text, "images": found_images}, None
-    except Exception as e: return None, f"ERROR: {str(e)}"
+
+    except Exception as e: 
+        return None, f"CONNECTION ERROR: {str(e)}\n\n💡 Tip: This site might be blocking bots. Try pasting the text manually in the 'Text Summary' tab."
 
 # --- ROBUST PDF READER ---
 def extract_text_from_pdf(uploaded_file):
@@ -501,6 +514,26 @@ def regenerate_description_only(text, api_key, lang="English"):
         response = model.generate_content(prompt)
         return response.text.strip()
     except: return "Error regenerating description."
+
+# --- GRAMMAR CHECKER FUNCTION ---
+def fix_grammar_american(text, api_key):
+    model_name = get_working_model_name(api_key)
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name)
+    prompt = f"""
+    Act as a professional editor.
+    Task: Correct the grammar, spelling, and punctuation of the following text.
+    Standard: American English.
+    Constraint: Keep the original tone and meaning. Do not add conversational filler (like "Here is the corrected text"). Return ONLY the corrected text.
+    
+    Input Text:
+    {text}
+    """
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        return f"AI Error: {str(e)}"
 
 # --- EMAIL DRAFTER ---
 def call_gemini_email_draft(json_data, api_key):
@@ -843,7 +876,7 @@ with st.sidebar:
     target_lang = st.selectbox("🌐 Target Language", ["English", "Chinese (Traditional)", "Chinese (Simplified)", "Korean", "Japanese", "Thai", "Vietnamese", "Indonesian"])
     st.divider()
 
-t1, t2, t3, t4, t5 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "🛡️ Merchant Validator"])
+t1, t2, t3, t4, t5, t6 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "🛡️ Merchant Validator", "📝 Grammar Check"])
 
 with t1:
     url = st.text_input("Paste Tour Link")
@@ -1115,7 +1148,47 @@ with t5:
             st.link_button("🟢 Find on Viator", f"https://www.google.com/search?q={search_query}+Viator")
 
         st.divider()
-        # (Remaining Red Flags/Strengths/Summary code stays the same)
+        if 'summary' in res: st.info(f"**Summary:** {res['summary']}")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            st.error("🚩 **Red Flags**")
+            for f in res.get('red_flags', []): st.write(f"- {f}")
+        with c2:
+            st.success("💪 **Strengths**")
+            for s in res.get('strengths', []): st.write(f"- {s}")
+
+# --- TAB 6 UI (NEW GRAMMAR CHECKER) ---
+with t6:
+    st.header("📝 Grammar Checker (American English)")
+    st.info("Paste your text below to correct grammar and check word count.")
+    
+    text_input = st.text_area("Paste text here:", height=200, key="grammar_input")
+    
+    if st.button("Fix Grammar & Count Words"):
+        keys = get_all_keys()
+        if not keys: st.error("❌ No API Keys"); st.stop()
+        if not text_input: st.warning("⚠️ Please enter text first."); st.stop()
+        
+        with st.spinner("Correcting Grammar..."):
+            fixed_text = fix_grammar_american(text_input, random.choice(keys))
+            
+            if "AI Error" in fixed_text:
+                st.error(fixed_text)
+            else:
+                # Calculate counts
+                wc_original = len(text_input.split())
+                wc_fixed = len(fixed_text.split())
+                char_count = len(fixed_text)
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Original Words", wc_original)
+                c2.metric("Result Words", wc_fixed, delta=wc_fixed-wc_original)
+                c3.metric("Character Count", char_count)
+                
+                st.subheader("✅ Corrected Text")
+                st.text_area("Result (Copy from here):", value=fixed_text, height=250)
+                st.success("Correction Complete!")
 
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
