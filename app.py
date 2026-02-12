@@ -308,6 +308,27 @@ t1, t2, t3, t4, t5, t6 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "
 
 # (Tabs t1-t4 follow your original structure)
 
+# --- TAB 6: GRAMMAR & WORD COUNT ---
+with t6:
+    st.header("✍️ American English Grammar Checker")
+    gram_text = st.text_area("Paste Text to Check:", height=200, key="gram_input")
+    if st.button("✨ Check & Fix"):
+        keys = get_all_keys()
+        if gram_text and keys:
+            with st.spinner("Fixing..."):
+                model = genai.GenerativeModel(get_working_model_name(random.choice(keys)))
+                prompt = f"Fix grammar and spelling in AMERICAN ENGLISH. Professional travel tone. Only return corrected text.\n\nTEXT: {gram_text}"
+                resp = model.generate_content(prompt)
+                fixed = resp.text.strip()
+                st.divider()
+                st.subheader("✅ Corrected Text")
+                w_count = len(fixed.split())
+                c_count = len(fixed)
+                c1, c2 = st.columns(2)
+                c1.metric("Word Count", w_count)
+                c2.metric("Char Count", c_count)
+                st.code(fixed, language="text")
+                
 # --- TAB 5: MERCHANT VALIDATOR (RESTORED FLAGS & EXPANDED CATS) ---
 with t5:
     st.header("🛡️ Merchant Risk Assessment")
@@ -350,28 +371,8 @@ with t5:
             st.markdown("### ✅ Strengths")
             for s in res.get('strengths', []): st.success(s)
 
-# --- TAB 6: GRAMMAR & WORD COUNT ---
-with t6:
-    st.header("✍️ American English Grammar Checker")
-    gram_text = st.text_area("Paste Text to Check:", height=200, key="gram_input")
-    if st.button("✨ Check & Fix"):
-        keys = get_all_keys()
-        if gram_text and keys:
-            with st.spinner("Fixing..."):
-                model = genai.GenerativeModel(get_working_model_name(random.choice(keys)))
-                prompt = f"Fix grammar and spelling in AMERICAN ENGLISH. Professional travel tone. Only return corrected text.\n\nTEXT: {gram_text}"
-                resp = model.generate_content(prompt)
-                fixed = resp.text.strip()
-                st.divider()
-                st.subheader("✅ Corrected Text")
-                w_count = len(fixed.split())
-                c_count = len(fixed)
-                c1, c2 = st.columns(2)
-                c1.metric("Word Count", w_count)
-                c2.metric("Char Count", c_count)
-                st.code(fixed, language="text")
-
 # (Always render if data exists logic remains at bottom)
 if st.session_state['gen_result']:
     # Assuming render_output is defined as per your previous code
     pass
+
