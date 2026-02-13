@@ -161,7 +161,7 @@ def validate_merchant_risk(text, url, api_key):
             domain_years = (datetime.now() - c_date).days // 365
         except: pass
 
-    # 3. Gemini Risk Analysis Prompt (Optimized for Klook Screenshots)
+    # 3. Gemini Risk Analysis Prompt
     prompt = f"""
     Analyze this merchant website for Klook onboarding risk.
     URL: {url}
@@ -191,23 +191,40 @@ def validate_merchant_risk(text, url, api_key):
     except Exception as e:
         return {"error": f"AI Audit Failed: {str(e)}"}
 
-# --- IMAGE RESIZING LOGIC ---
+# --- IMAGE RESIZING LOGIC (HIGH QUALITY FIX) ---
 def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
     if Image is None: return None, "⚠️ Error: 'Pillow' library missing."
     try:
+        # 1. Load Image
         if isinstance(image_input, bytes):
             img = Image.open(io.BytesIO(image_input))
         else:
             img = Image.open(image_input)
             
+        # 2. Convert to RGB (Fixing Color Issues & Transparency)
+        if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+            background = Image.new('RGB', img.size, (255, 255, 255))
+            if img.mode == 'P':
+                img = img.convert('RGBA')
+            background.paste(img, mask=img.split()[3]) 
+            img = background
+        else:
+            img = img.convert('RGB')
+
+        # 3. High-Quality Resize (Lanczos)
         target_width = 1280
         target_height = 800
         img_resized = ImageOps.fit(img, (target_width, target_height), method=Image.Resampling.LANCZOS, centering=alignment)
+        
+        # 4. Save with Maximum Quality Settings
         buf = io.BytesIO()
-        img_format = img.format if img.format else 'JPEG'
-        if img_resized.mode == 'RGBA' and img_format.upper() == 'JPEG':
-            img_resized = img_resized.convert('RGB')
-        img_resized.save(buf, format=img_format, quality=90)
+        img_resized.save(
+            buf, 
+            format='JPEG', 
+            quality=95,           # Bump quality from 75 default to 95
+            subsampling=0,        # Disable chroma subsampling (sharper colors)
+            optimize=True         # Better compression algorithm
+        )
         return buf.getvalue(), None
     except Exception as e:
         return None, f"Error processing image: {e}"
@@ -224,10 +241,10 @@ class LegacySSLAdapter(HTTPAdapter):
             ssl_context=ctx
         )
 
-# --- SCRAPER (ROBUST) ---
+# --- SCRAPER (ROBUST + HIGH RES IMAGES) ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def extract_data_from_url(url):
-    # Setup User Agents to rotate
+    # 1. Setup User Agents to rotate
     user_agents = [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -261,10 +278,18 @@ def extract_data_from_url(url):
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        # EXTRACT IMAGES
+        # EXTRACT IMAGES (HIGH RES FIX)
         found_images = []
         for img in soup.find_all('img'):
-            src = img.get('src')
+            # PRIORITY: Look for high-res 'data-src' or 'srcset' first
+            src = img.get('data-src') or img.get('data-original') or img.get('src')
+            
+            # Handle srcset (often contains multiple urls, get the last/largest one)
+            if img.get('srcset'):
+                try:
+                    src = img.get('srcset').split(',')[-1].strip().split(' ')[0]
+                except: pass
+            
             if src:
                 if src.startswith('//'): src = 'https:' + src
                 elif src.startswith('/'): src = urllib.parse.urljoin(url, src)
