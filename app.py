@@ -121,37 +121,44 @@ def romanize_text(text):
     normalized = unicodedata.normalize('NFKD', text)
     return normalized.encode('ascii', 'ignore').decode('ascii')
 
-# --- IMPROVED MERCHANT RISK LOGIC (AUTO-HUNT VERSION) ---
+# --- IMPROVED MERCHANT RISK LOGIC (V4 - CUSTOM VETTING) ---
 def validate_merchant_risk(text, url, api_key):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
     
-    # 1. Automatic "About Us" Hunting if text is empty
     scraped_content = text
-    if not text and url:
+    inferred_name = ""
+    
+    # 1. Automatic "About Us" and Merchant Name Hunting
+    if url:
         try:
             scraper = cloudscraper.create_scraper()
             base_res = scraper.get(url, timeout=12)
             soup = BeautifulSoup(base_res.content, 'html.parser')
             
-            # Search for About/Company/Legal links
-            target_url = url
-            for link in soup.find_all('a', href=True):
-                href = link['href'].lower()
-                if any(w in href for w in ['about', 'company', 'story', 'legal', 'who-we-are']):
-                    target_url = urllib.parse.urljoin(url, link['href'])
-                    break
-            
-            # Scrape the discovered page
-            final_res = scraper.get(target_url, timeout=12)
-            final_soup = BeautifulSoup(final_res.content, 'html.parser')
-            for s in final_soup(["script", "style", "noscript"]): s.extract()
-            scraped_content = final_soup.get_text(separator=' ')[:15000]
+            title = soup.find('title')
+            if title:
+                inferred_name = title.get_text().split('|')[0].split('-')[0].strip()
+            else:
+                inferred_name = urllib.parse.urlparse(url).netloc.replace("www.", "").split('.')[0].capitalize()
+
+            if not text:
+                target_url = url
+                for link in soup.find_all('a', href=True):
+                    href = link['href'].lower()
+                    if any(w in href for w in ['about', 'company', 'story', 'legal']):
+                        target_url = urllib.parse.urljoin(url, link['href'])
+                        break
+                
+                final_res = scraper.get(target_url, timeout=12)
+                final_soup = BeautifulSoup(final_res.content, 'html.parser')
+                for s in final_soup(["script", "style", "noscript"]): s.extract()
+                scraped_content = final_soup.get_text(separator=' ')[:15000]
         except:
             pass
 
-    # 2. Whois Check (Longevity)
+    # 2. Whois Check
     domain_years = "Unknown"
     if HAS_WHOIS and url:
         try:
@@ -161,47 +168,54 @@ def validate_merchant_risk(text, url, api_key):
             domain_years = (datetime.now() - c_date).days // 365
         except: pass
 
-    # 3. Gemini Risk Analysis Prompt
+    # 3. Gemini Prompt with Advanced Vetting Logic
     prompt = f"""
-    Analyze this merchant website for Klook onboarding risk.
+    Analyze this merchant for Klook/GYG onboarding.
     URL: {url}
     CONTENT: {scraped_content[:10000]}
     
-    ASSESSMENT CRITERIA:
-    - Does the content match a professional tour operator or a suspicious entity?
-    - Are there clear contact details (Phone, Email, Physical Address)?
-    - Do they use professional booking systems (e.g., Bokun, Rezdy, TrekkSoft)?
-    - Is the English/Local language quality professional?
-    - Does the site look like a low-quality template?
-
-    Return JSON strictly in this format:
+    TASK:
+    1. Categories - Find ALL offerings and classify them STRICTLY into:
+       - 'preferred_categories_found': Only use "Walking tours", "Bus/Car/Boat tours", "Hiking & trekking".
+       - 'red_flag_categories_found': Only use "Food tours", "Dining experiences", "Private tours", "ATV & All Wheel Drive".
+       - 'other_categories_found': List ANY other activities they offer not listed above (e.g., Helicopter flights, Museum tickets, Spa).
+    2. Assess legitimacy (1-100) and provide a 'score_reason' (Look for professional booking systems, contact info, address).
+    3. Make a final decision ('Approved' or 'Rejected'). Reject them if they heavily focus on Red Flag categories or have low legitimacy. Approve if they offer Preferred categories and look professional.
+    4. Provide a 'status_reason' explaining the Approved/Rejected decision.
+    
+    Return JSON:
     {{
+        "merchant_name": "Extracted Name",
         "legitimacy_score": 1-100,
-        "red_flags": ["Concern 1", "Concern 2"],
-        "strengths": ["Positive 1", "Positive 2"],
-        "recommendation": "Approve/Waitlist/Reject",
-        "summary": "2-sentence overview"
+        "score_reason": "Explain why this score was given...",
+        "preferred_categories_found": ["Category 1"],
+        "red_flag_categories_found": ["Category 2"],
+        "other_categories_found": ["Category 3"],
+        "status": "Approved" or "Rejected",
+        "status_reason": "Explain why approved or rejected based on categories...",
+        "red_flags": ["General concern 1"],
+        "strengths": ["Positive 1"],
+        "summary": "Overview"
     }}
     """
     try:
         response = model.generate_content(prompt)
         res_data = json.loads(response.text)
         res_data["domain_age"] = domain_years
+        if not res_data.get("merchant_name"): res_data["merchant_name"] = inferred_name
         return res_data
     except Exception as e:
-        return {"error": f"AI Audit Failed: {str(e)}"}
+        return {"error": f"AI Audit Failed: {str(e)}", "merchant_name": inferred_name}
 
 # --- IMAGE RESIZING LOGIC (HIGH QUALITY FIX) ---
 def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
     if Image is None: return None, "⚠️ Error: 'Pillow' library missing."
     try:
-        # 1. Load Image
         if isinstance(image_input, bytes):
             img = Image.open(io.BytesIO(image_input))
         else:
             img = Image.open(image_input)
             
-        # 2. Convert to RGB (Fixing Color Issues & Transparency)
         if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
             background = Image.new('RGB', img.size, (255, 255, 255))
             if img.mode == 'P':
@@ -211,19 +225,17 @@ def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
         else:
             img = img.convert('RGB')
 
-        # 3. High-Quality Resize (Lanczos)
         target_width = 1280
         target_height = 800
         img_resized = ImageOps.fit(img, (target_width, target_height), method=Image.Resampling.LANCZOS, centering=alignment)
         
-        # 4. Save with Maximum Quality Settings
         buf = io.BytesIO()
         img_resized.save(
             buf, 
             format='JPEG', 
-            quality=95,           # Bump quality from 75 default to 95
-            subsampling=0,        # Disable chroma subsampling (sharper colors)
-            optimize=True         # Better compression algorithm
+            quality=95,           
+            subsampling=0,        
+            optimize=True         
         )
         return buf.getvalue(), None
     except Exception as e:
@@ -244,7 +256,6 @@ class LegacySSLAdapter(HTTPAdapter):
 # --- SCRAPER (ROBUST + HIGH RES IMAGES) ---
 @st.cache_data(ttl=3600, show_spinner=False)
 def extract_data_from_url(url):
-    # 1. Setup User Agents to rotate
     user_agents = [
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -259,7 +270,6 @@ def extract_data_from_url(url):
     }
 
     try:
-        # ATTEMPT 1: Cloudscraper
         try:
             scraper = cloudscraper.create_scraper(
                 browser={'browser': 'chrome','platform': 'windows','desktop': True}
@@ -267,7 +277,6 @@ def extract_data_from_url(url):
             scraper.mount('https://', LegacySSLAdapter())
             response = scraper.get(url, headers=headers, timeout=30) 
         except Exception:
-            # ATTEMPT 2: Standard Requests Fallback
             response = requests.get(url, headers=headers, timeout=30, verify=False) 
 
         if response.status_code == 403:
@@ -278,13 +287,9 @@ def extract_data_from_url(url):
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        # EXTRACT IMAGES (HIGH RES FIX)
         found_images = []
         for img in soup.find_all('img'):
-            # PRIORITY: Look for high-res 'data-src' or 'srcset' first
             src = img.get('data-src') or img.get('data-original') or img.get('src')
-            
-            # Handle srcset (often contains multiple urls, get the last/largest one)
             if img.get('srcset'):
                 try:
                     src = img.get('srcset').split(',')[-1].strip().split(' ')[0]
@@ -298,7 +303,6 @@ def extract_data_from_url(url):
                         found_images.append(src)
         found_images = found_images[:15]
 
-        # EXTRACT TEXT
         for script in soup(["script", "style", "noscript", "svg"]): 
             script.extract()
         text = soup.get_text(separator=' \n ')
@@ -554,13 +558,10 @@ def fix_grammar_american(text, keys):
     {text}
     """
     
-    # Shuffle the keys so we don't always hit the same one first
     shuffled_keys = list(keys)
     random.shuffle(shuffled_keys)
-    
     last_error = ""
     
-    # LOOP: Try each key until one works
     for key in shuffled_keys:
         try:
             model_name = get_working_model_name(key)
@@ -569,20 +570,16 @@ def fix_grammar_american(text, keys):
             
             response = model.generate_content(prompt)
             corrected_text = response.text.strip()
-            
-            # Remove trailing period if present
             if corrected_text.endswith("."):
                 corrected_text = corrected_text[:-1]
                 
-            return corrected_text # Success! Stop looping and return text.
+            return corrected_text 
             
         except Exception as e:
-            # If this key hit a 429 limit, save the error and immediately try the next key
             last_error = str(e)
             time.sleep(0.5) 
             continue 
             
-    # If it goes through ALL 30+ keys and they ALL fail (very unlikely)
     return f"AI Error: All keys exhausted. Last error: {last_error}"
 
 # --- EMAIL DRAFTER ---
@@ -902,18 +899,14 @@ def smart_rotation_wrapper(text, keys, lang="English"):
                 try:
                     d = json.loads(result)
                     
-                    # 1. Force Clean Highlights (Remove Trailing Periods)
                     if "basic_info" in d and "highlights" in d["basic_info"]:
                         cleaned_highlights = [h.rstrip('.') for h in d["basic_info"]["highlights"]]
                         d["basic_info"]["highlights"] = cleaned_highlights
                     
-                    # 2. Word Count Logic
                     if "basic_info" in d and "what_to_expect" in d["basic_info"]:
                         wte = d["basic_info"]["what_to_expect"]
                         if wte.endswith("."): wte = wte[:-1]
                         d["basic_info"]["what_to_expect"] = wte
-                    
-                    # 3. FORCE FIX MIN/MAX PAX logic REMOVED to trust AI prompt
                     
                     result = json.dumps(d)
                 except: pass
@@ -945,7 +938,7 @@ with t1:
                 st.stop()
             
             st.session_state['scraped_images'] = data_dict['images']
-            st.session_state['raw_text_content'] = data_dict['text'] # SAVE RAW TEXT FOR REGENERATION
+            st.session_state['raw_text_content'] = data_dict['text'] 
             
             status.write(f"✅ Found {len(data_dict['images'])} images & {len(data_dict['text'])} chars. Calling AI...")
             result = smart_rotation_wrapper(data_dict['text'], keys, target_lang)
@@ -965,7 +958,7 @@ with t2:
     if st.button("Generate from Text"):
         keys = get_all_keys()
         if not keys: st.error("❌ No Keys"); st.stop()
-        st.session_state['raw_text_content'] = raw_text # SAVE FOR REGEN
+        st.session_state['raw_text_content'] = raw_text 
         result = smart_rotation_wrapper(raw_text, keys, target_lang)
         if "Busy" not in result and "Error" not in result:
             st.session_state['gen_result'] = result
@@ -988,7 +981,7 @@ with t3:
                 st.error(pdf_text)
                 st.stop()
             
-            st.session_state['raw_text_content'] = pdf_text # SAVE FOR REGEN
+            st.session_state['raw_text_content'] = pdf_text 
             status.write(f"✅ Extracted {len(pdf_text)} chars. Calling AI...")
             result = smart_rotation_wrapper(pdf_text, keys, target_lang)
             
@@ -1082,88 +1075,10 @@ with t4:
             st.success("✅ All images processed!")
             st.download_button("⬇️ Download All (ZIP)", zip_buf.getvalue(), "klook_images.zip", "application/zip")
 
-# --- IMPROVED MERCHANT RISK LOGIC (V3) ---
-def validate_merchant_risk(text, url, api_key):
-    model_name = get_working_model_name(api_key)
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
-    
-    scraped_content = text
-    inferred_name = ""
-    
-    # 1. Automatic "About Us" and Merchant Name Hunting
-    if url:
-        try:
-            scraper = cloudscraper.create_scraper()
-            base_res = scraper.get(url, timeout=12)
-            soup = BeautifulSoup(base_res.content, 'html.parser')
-            
-            # Auto-pull Merchant Name from Title or Domain
-            title = soup.find('title')
-            if title:
-                inferred_name = title.get_text().split('|')[0].split('-')[0].strip()
-            else:
-                inferred_name = urllib.parse.urlparse(url).netloc.replace("www.", "").split('.')[0].capitalize()
 
-            if not text:
-                target_url = url
-                for link in soup.find_all('a', href=True):
-                    href = link['href'].lower()
-                    if any(w in href for w in ['about', 'company', 'story', 'legal']):
-                        target_url = urllib.parse.urljoin(url, link['href'])
-                        break
-                
-                final_res = scraper.get(target_url, timeout=12)
-                final_soup = BeautifulSoup(final_res.content, 'html.parser')
-                for s in final_soup(["script", "style", "noscript"]): s.extract()
-                scraped_content = final_soup.get_text(separator=' ')[:15000]
-        except:
-            pass
-
-    # 2. Whois Check
-    domain_years = "Unknown"
-    if HAS_WHOIS and url:
-        try:
-            domain_name = urllib.parse.urlparse(url).netloc
-            w = whois.whois(domain_name)
-            c_date = w.creation_date[0] if isinstance(w.creation_date, list) else w.creation_date
-            domain_years = (datetime.now() - c_date).days // 365
-        except: pass
-
-    # 3. Gemini Prompt with Category Filtering
-    prompt = f"""
-    Analyze this merchant for Klook/GYG onboarding.
-    URL: {url}
-    CONTENT: {scraped_content[:10000]}
-    
-    TASK:
-    1. Identify the 'business_categories' from this list: Bus tours, Car tours, Boat tours, Walking tours, Hiking/Trekking, ATV/4WD, Food and drink.
-    2. Assess legitimacy and red flags.
-    
-    Return JSON:
-    {{
-        "merchant_name": "Extracted Name",
-        "legitimacy_score": 1-100,
-        "categories_found": ["Cat 1", "Cat 2"],
-        "red_flags": [],
-        "strengths": [],
-        "recommendation": "Approve/Waitlist/Reject",
-        "summary": "Overview"
-    }}
-    """
-    try:
-        response = model.generate_content(prompt)
-        res_data = json.loads(response.text)
-        res_data["domain_age"] = domain_years
-        # Fallback for name if AI fails
-        if not res_data.get("merchant_name"): res_data["merchant_name"] = inferred_name
-        return res_data
-    except:
-        return {"error": "AI Audit Failed", "merchant_name": inferred_name}
-
-# --- TAB 5 UI ---
+# --- TAB 5 UI (UPDATED ADVANCED MERCHANT VALIDATOR) ---
 with t5:
-    st.header("🛡️ Merchant Risk Assessment")
+    st.header("🛡️ Merchant Risk Assessment (Advanced Vetting)")
     m_url = st.text_input("Merchant Website URL", key="m_url")
     m_text = st.text_area("About Us / Business Text (Optional)", key="m_text")
     
@@ -1171,7 +1086,7 @@ with t5:
         keys = get_all_keys()
         if not keys: st.error("❌ No Keys"); st.stop()
         
-        with st.status("🕵️ Auditing Merchant...", expanded=True) as status:
+        with st.status("🕵️ Auditing Merchant & Checking Categories...", expanded=True) as status:
             risk_res = validate_merchant_risk(m_text, m_url, random.choice(keys))
             st.session_state['merchant_result'] = risk_res
             status.update(label="✅ Audit Complete!", state="complete")
@@ -1179,29 +1094,56 @@ with t5:
     if st.session_state['merchant_result']:
         res = st.session_state['merchant_result']
         m_name = res.get('merchant_name', 'Merchant')
+        status_val = res.get('status', 'Unknown')
         
-        col1, col2, col3 = st.columns([1, 1, 1])
+        # 1. BIG DECISION BANNER
+        if status_val.lower() == 'approved':
+            st.success(f"### ✅ STATUS: APPROVED \n **Reason:** {res.get('status_reason', '')}")
+        else:
+            st.error(f"### ❌ STATUS: REJECTED \n **Reason:** {res.get('status_reason', '')}")
+            
+        st.divider()
+        
+        # 2. SCORE & MERCHANT INFO
+        col1, col2 = st.columns([1, 2])
         with col1:
             st.metric("Legitimacy Score", f"{res.get('legitimacy_score', 0)}/100")
             st.write(f"**Merchant:** {m_name}")
             st.write(f"**Domain Age:** {res.get('domain_age', 'Unknown')} years")
-        
         with col2:
-            st.write("🟢 **Categories Detected**")
-            cats = res.get('categories_found', [])
-            if cats:
-                for c in cats: st.caption(f"✅ {c}")
-            else:
-                st.caption("No specific categories detected.")
-
-        with col3:
-            st.write("🌐 **OTA Search (Google)**")
+            st.info(f"**Score Breakdown:** \n {res.get('score_reason', 'N/A')}")
+            
+            st.write("🌐 **OTA Cross-Check (Google)**")
             search_query = urllib.parse.quote(f'"{m_name}"')
             st.link_button("🔵 Find on GetYourGuide", f"https://www.google.com/search?q={search_query}+GetYourGuide")
             st.link_button("🟢 Find on Viator", f"https://www.google.com/search?q={search_query}+Viator")
 
         st.divider()
-        # (Remaining Red Flags/Strengths/Summary code stays the same)
+
+        # 3. CATEGORY TRIANGULATION 
+        st.subheader("📊 Category Extraction")
+        c_pref, c_red, c_other = st.columns(3)
+        
+        with c_pref:
+            st.write("🟢 **Preferred Verticals**")
+            items = res.get('preferred_categories_found', [])
+            if items:
+                for c in items: st.success(f"✅ {c}")
+            else: st.caption("None found.")
+                
+        with c_red:
+            st.write("🔴 **Red-Flag Verticals**")
+            items = res.get('red_flag_categories_found', [])
+            if items:
+                for c in items: st.error(f"🚩 {c}")
+            else: st.caption("None found.")
+                
+        with c_other:
+            st.write("⚪ **Other Verticals**")
+            items = res.get('other_categories_found', [])
+            if items:
+                for c in items: st.info(f"🔹 {c}")
+            else: st.caption("None found.")
 
 # --- TAB 6 UI (NEW GRAMMAR CHECKER) ---
 with t6:
@@ -1238,4 +1180,3 @@ with t6:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
-
