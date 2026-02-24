@@ -1002,9 +1002,12 @@ with t4:
         cols = st.columns(5)
         for i, img_url in enumerate(st.session_state['scraped_images']):
             with cols[i % 5]:
-                st.image(img_url, use_column_width=True)
-                if st.checkbox("Select", key=f"img_{i}"):
-                    selected_scraped.append(img_url)
+                try:
+                    st.image(img_url, use_column_width=True)
+                    if st.checkbox("Select", key=f"img_{i}"):
+                        selected_scraped.append(img_url)
+                except Exception:
+                    st.warning(f"⚠️ Could not load image {i+1}")
 
     if st.button("Process Selected Images"):
         keys = get_all_keys()
