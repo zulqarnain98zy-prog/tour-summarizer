@@ -540,11 +540,10 @@ def regenerate_description_only(text, api_key, lang="English"):
         return response.text.strip()
     except: return "Error regenerating description."
 
-# --- GRAMMAR CHECKER FUNCTION (UPDATED) ---
-def fix_grammar_american(text, api_key):
-    model_name = get_working_model_name(api_key)
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name)
+# --- GRAMMAR CHECKER FUNCTION (UPDATED WITH KEY ROTATION) ---
+def fix_grammar_american(text, keys):
+    if not keys: return "AI Error: No API keys found."
+    
     prompt = f"""
     Act as a professional editor.
     Task: Correct the grammar, spelling, and punctuation of the following text.
@@ -554,15 +553,37 @@ def fix_grammar_american(text, api_key):
     Input Text:
     {text}
     """
-    try:
-        response = model.generate_content(prompt)
-        corrected_text = response.text.strip()
-        # NEW LOGIC: Remove trailing period if present
-        if corrected_text.endswith("."):
-            corrected_text = corrected_text[:-1]
-        return corrected_text
-    except Exception as e:
-        return f"AI Error: {str(e)}"
+    
+    # Shuffle the keys so we don't always hit the same one first
+    shuffled_keys = list(keys)
+    random.shuffle(shuffled_keys)
+    
+    last_error = ""
+    
+    # LOOP: Try each key until one works
+    for key in shuffled_keys:
+        try:
+            model_name = get_working_model_name(key)
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel(model_name)
+            
+            response = model.generate_content(prompt)
+            corrected_text = response.text.strip()
+            
+            # Remove trailing period if present
+            if corrected_text.endswith("."):
+                corrected_text = corrected_text[:-1]
+                
+            return corrected_text # Success! Stop looping and return text.
+            
+        except Exception as e:
+            # If this key hit a 429 limit, save the error and immediately try the next key
+            last_error = str(e)
+            time.sleep(0.5) 
+            continue 
+            
+    # If it goes through ALL 30+ keys and they ALL fail (very unlikely)
+    return f"AI Error: All keys exhausted. Last error: {last_error}"
 
 # --- EMAIL DRAFTER ---
 def call_gemini_email_draft(json_data, api_key):
@@ -1195,7 +1216,7 @@ with t6:
         if not text_input: st.warning("⚠️ Please enter text first."); st.stop()
         
         with st.spinner("Correcting Grammar..."):
-            fixed_text = fix_grammar_american(text_input, random.choice(keys))
+            fixed_text = fix_grammar_american(text_input, keys)
             
             if "AI Error" in fixed_text:
                 st.error(fixed_text)
@@ -1217,3 +1238,4 @@ with t6:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
