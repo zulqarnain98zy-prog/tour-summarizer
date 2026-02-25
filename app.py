@@ -202,7 +202,36 @@ def validate_merchant_risk(text, url, api_key):
         response = model.generate_content(prompt)
         res_data = json.loads(response.text)
         res_data["domain_age"] = domain_years
-        if not res_data.get("merchant_name"): res_data["merchant_name"] = inferred_name
+        
+        # Fallback for name if AI fails
+        if not res_data.get("merchant_name"): 
+            res_data["merchant_name"] = inferred_name
+            
+        # --- NEW STRICT RULE: MATH-BASED APPROVAL ---
+        pref_list = res_data.get("preferred_categories_found", [])
+        red_list = res_data.get("red_flag_categories_found", [])
+        
+        # Ensure they are actually lists before counting
+        if not isinstance(pref_list, list): pref_list = []
+        if not isinstance(red_list, list): red_list = []
+        
+        pref_count = len(pref_list)
+        red_count = len(red_list)
+        
+        # Original AI reason to keep as context
+        ai_reason = res_data.get("status_reason", "")
+        
+        if pref_count > red_count:
+            res_data["status"] = "Approved"
+            res_data["status_reason"] = f"Rule Auto-Approval: Found {pref_count} preferred vs {red_count} red-flag verticals. (AI notes: {ai_reason})"
+        elif red_count > pref_count:
+            res_data["status"] = "Rejected"
+            res_data["status_reason"] = f"Rule Auto-Rejection: Found {red_count} red-flag vs {pref_count} preferred verticals. (AI notes: {ai_reason})"
+        else:
+            # TIE-BREAKER: If it's a tie (e.g., 1 preferred, 1 red flag, or 0 of both), 
+            # we rely on the AI's original legitimacy assessment.
+            res_data["status_reason"] = f"Tie-Breaker (AI Decision): Equal categories found ({pref_count}). Reason: {ai_reason}"
+
         return res_data
     except Exception as e:
         return {"error": f"AI Audit Failed: {str(e)}", "merchant_name": inferred_name}
@@ -1180,4 +1209,5 @@ with t6:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
 
