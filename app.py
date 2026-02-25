@@ -442,9 +442,23 @@ def create_pdf(data):
     doc.build(story)
     return buffer.getvalue()
 
-# --- SMART MODEL FINDER (FIXED) ---
+# --- SMART MODEL FINDER (FIXED WITH MEMORY CACHE) ---
+@st.cache_data(ttl=86400, show_spinner=False)
 def get_working_model_name(api_key):
-    return "gemini-1.5-flash"
+    genai.configure(api_key=api_key)
+    try:
+        models = genai.list_models()
+        available_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
+        
+        # Will look for 1.5 or 2.5 flash automatically
+        priority_list = ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-pro"]
+        for pref in priority_list:
+            for model in available_models:
+                if pref in model: return model
+                
+        return available_models[0] if available_models else "models/gemini-1.5-flash"
+    except: 
+        return "models/gemini-1.5-flash"
 
 # --- KLOOK SELLING POINTS LIST ---
 SELLING_POINTS_LIST = """
@@ -1214,6 +1228,7 @@ with t6:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
 
 
 
