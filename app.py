@@ -442,18 +442,11 @@ def create_pdf(data):
     doc.build(story)
     return buffer.getvalue()
 
-# --- SMART MODEL FINDER ---
+# --- SMART MODEL FINDER (FIXED) ---
 def get_working_model_name(api_key):
-    genai.configure(api_key=api_key)
-    try:
-        models = genai.list_models()
-        available_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
-        priority_list = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro"]
-        for pref in priority_list:
-            for model in available_models:
-                if pref in model: return model
-        return available_models[0] if available_models else None
-    except: return "models/gemini-1.5-flash"
+    # Hardcoding the model prevents the system from wasting 1 API call 
+    # to check available models, which prevents the 429 crash in loops!
+    return "models/gemini-1.5-flash"
 
 def sanitize_text(text):
     if not text: return ""
@@ -1228,6 +1221,7 @@ with t6:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
 
 
 
