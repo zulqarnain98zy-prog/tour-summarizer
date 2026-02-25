@@ -121,11 +121,9 @@ def romanize_text(text):
     normalized = unicodedata.normalize('NFKD', text)
     return normalized.encode('ascii', 'ignore').decode('ascii')
 
-# --- IMPROVED MERCHANT RISK LOGIC (V4 - CUSTOM VETTING) ---
-def validate_merchant_risk(text, url, api_key):
-    model_name = get_working_model_name(api_key)
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+# --- IMPROVED MERCHANT RISK LOGIC (V5 - AUTO-RETRY & MATH RULES) ---
+def validate_merchant_risk(text, url, keys):
+    if not keys: return {"error": "No API keys found."}
     
     scraped_content = text
     inferred_name = ""
@@ -134,7 +132,7 @@ def validate_merchant_risk(text, url, api_key):
     if url:
         try:
             scraper = cloudscraper.create_scraper()
-            base_res = scraper.get(url, timeout=12)
+            base_res = scraper.get(url, timeout=15)
             soup = BeautifulSoup(base_res.content, 'html.parser')
             
             title = soup.find('title')
@@ -147,11 +145,11 @@ def validate_merchant_risk(text, url, api_key):
                 target_url = url
                 for link in soup.find_all('a', href=True):
                     href = link['href'].lower()
-                    if any(w in href for w in ['about', 'company', 'story', 'legal']):
+                    if any(w in href for w in ['about', 'company', 'story', 'legal', 'who-we-are']):
                         target_url = urllib.parse.urljoin(url, link['href'])
                         break
                 
-                final_res = scraper.get(target_url, timeout=12)
+                final_res = scraper.get(target_url, timeout=15)
                 final_soup = BeautifulSoup(final_res.content, 'html.parser')
                 for s in final_soup(["script", "style", "noscript"]): s.extract()
                 scraped_content = final_soup.get_text(separator=' ')[:15000]
@@ -176,11 +174,11 @@ def validate_merchant_risk(text, url, api_key):
     
     TASK:
     1. Categories - Find ALL offerings and classify them STRICTLY into:
-       - 'preferred_categories_found': Only use "Bus tours", "Motorcycle/Scooter/Segway tours", "Hiking & trekking tours", "Walking tours", "Boat tours", "Car tours", "Cruise tours".
-       - 'red_flag_categories_found': Only use "Air tours", "Attraction tickets", "ATV/All Wheel Drive tours", "Bicycle tours", "Food tours", "Food coupons", "Hop-on Hop-off bus", "Kayaking tours", "Mobility transportation", "Multiday tours", "Outlet tours", "Point-to-point tickets", "Private transfers", "Railway tours", "Recurring shows", "Shore excursions", "Ski tours", "Spa/Beauty", "Theme parks/Water parks", "Transportation passes", "Travel convenience", "Wifi & SIM".
-       - 'other_categories_found': List ANY other activities they offer not listed above (e.g., Helicopter flights, Museum tickets, Spa).
-    2. Assess legitimacy (1-100) and provide a 'score_reason' (Look for professional booking systems, contact info, address).
-    3. Make a final decision ('Approved' or 'Rejected'). Reject them if they heavily focus on Red Flag categories or have low legitimacy. Approve if they offer Preferred categories and look professional.
+       - 'preferred_categories_found': Only use "Walking tours", "Bus/Car/Boat tours", "Hiking & trekking".
+       - 'red_flag_categories_found': Only use "Food tours", "Dining experiences", "Private tours", "ATV & All Wheel Drive".
+       - 'other_categories_found': List ANY other activities they offer not listed above.
+    2. Assess legitimacy (1-100) and provide a 'score_reason'.
+    3. Make a final decision ('Approved' or 'Rejected').
     4. Provide a 'status_reason' explaining the Approved/Rejected decision.
     
     Return JSON:
@@ -198,43 +196,59 @@ def validate_merchant_risk(text, url, api_key):
         "summary": "Overview"
     }}
     """
-    try:
-        response = model.generate_content(prompt)
-        res_data = json.loads(response.text)
-        res_data["domain_age"] = domain_years
-        
-        # Fallback for name if AI fails
-        if not res_data.get("merchant_name"): 
-            res_data["merchant_name"] = inferred_name
-            
-        # --- NEW STRICT RULE: MATH-BASED APPROVAL ---
-        pref_list = res_data.get("preferred_categories_found", [])
-        red_list = res_data.get("red_flag_categories_found", [])
-        
-        # Ensure they are actually lists before counting
-        if not isinstance(pref_list, list): pref_list = []
-        if not isinstance(red_list, list): red_list = []
-        
-        pref_count = len(pref_list)
-        red_count = len(red_list)
-        
-        # Original AI reason to keep as context
-        ai_reason = res_data.get("status_reason", "")
-        
-        if pref_count > red_count:
-            res_data["status"] = "Approved"
-            res_data["status_reason"] = f"Rule Auto-Approval: Found {pref_count} preferred vs {red_count} red-flag verticals. (AI notes: {ai_reason})"
-        elif red_count > pref_count:
-            res_data["status"] = "Rejected"
-            res_data["status_reason"] = f"Rule Auto-Rejection: Found {red_count} red-flag vs {pref_count} preferred verticals. (AI notes: {ai_reason})"
-        else:
-            # TIE-BREAKER: If it's a tie (e.g., 1 preferred, 1 red flag, or 0 of both), 
-            # we rely on the AI's original legitimacy assessment.
-            res_data["status_reason"] = f"Tie-Breaker (AI Decision): Equal categories found ({pref_count}). Reason: {ai_reason}"
+    
+    # 4. ROTATION LOOP (Tries keys until one works)
+    shuffled_keys = list(keys)
+    random.shuffle(shuffled_keys)
+    last_error = ""
 
-        return res_data
-    except Exception as e:
-        return {"error": f"AI Audit Failed: {str(e)}", "merchant_name": inferred_name}
+    for key in shuffled_keys:
+        try:
+            model_name = get_working_model_name(key)
+            genai.configure(api_key=key)
+            model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+            
+            response = model.generate_content(prompt)
+            
+            # Bulletproof JSON Parsing
+            clean_json = response.text.strip()
+            if clean_json.startswith("```json"): clean_json = clean_json[7:]
+            if clean_json.endswith("```"): clean_json = clean_json[:-3]
+            
+            res_data = json.loads(clean_json.strip())
+            res_data["domain_age"] = domain_years
+            
+            if not res_data.get("merchant_name"): 
+                res_data["merchant_name"] = inferred_name
+                
+            # --- STRICT RULE: MATH-BASED APPROVAL ---
+            pref_list = res_data.get("preferred_categories_found", [])
+            red_list = res_data.get("red_flag_categories_found", [])
+            
+            if not isinstance(pref_list, list): pref_list = []
+            if not isinstance(red_list, list): red_list = []
+            
+            pref_count = len(pref_list)
+            red_count = len(red_list)
+            ai_reason = res_data.get("status_reason", "")
+            
+            if pref_count > red_count:
+                res_data["status"] = "Approved"
+                res_data["status_reason"] = f"Rule Auto-Approval: Found {pref_count} preferred vs {red_count} red-flag verticals. (AI notes: {ai_reason})"
+            elif red_count > pref_count:
+                res_data["status"] = "Rejected"
+                res_data["status_reason"] = f"Rule Auto-Rejection: Found {red_count} red-flag vs {pref_count} preferred verticals. (AI notes: {ai_reason})"
+            else:
+                res_data["status_reason"] = f"Tie-Breaker (AI Decision): Equal categories found ({pref_count}). Reason: {ai_reason}"
+
+            return res_data # Success! Break the loop.
+
+        except Exception as e:
+            last_error = str(e)
+            time.sleep(0.5) # Wait half a second, then try the next key
+            continue 
+            
+    return {"error": f"AI Audit Failed on all keys. Last Error: {last_error}", "merchant_name": inferred_name}
 
 # --- IMAGE RESIZING LOGIC (HIGH QUALITY FIX) ---
 def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
@@ -1104,7 +1118,6 @@ with t4:
             st.success("✅ All images processed!")
             st.download_button("⬇️ Download All (ZIP)", zip_buf.getvalue(), "klook_images.zip", "application/zip")
 
-
 # --- TAB 5 UI (UPDATED ADVANCED MERCHANT VALIDATOR) ---
 with t5:
     st.header("🛡️ Merchant Risk Assessment (Advanced Vetting)")
@@ -1116,11 +1129,17 @@ with t5:
         if not keys: st.error("❌ No Keys"); st.stop()
         
         with st.status("🕵️ Auditing Merchant & Checking Categories...", expanded=True) as status:
-            risk_res = validate_merchant_risk(m_text, m_url, random.choice(keys))
-            st.session_state['merchant_result'] = risk_res
-            status.update(label="✅ Audit Complete!", state="complete")
+            # FIXED: Passing ALL keys so the retry loop works
+            risk_res = validate_merchant_risk(m_text, m_url, keys)
+            
+            if "error" in risk_res and len(risk_res) == 2: # Check if it completely failed
+                 status.update(label="❌ Audit Failed!", state="error")
+                 st.error(risk_res["error"])
+            else:
+                 st.session_state['merchant_result'] = risk_res
+                 status.update(label="✅ Audit Complete!", state="complete")
 
-    if st.session_state['merchant_result']:
+    if st.session_state['merchant_result'] and "legitimacy_score" in st.session_state['merchant_result']:
         res = st.session_state['merchant_result']
         m_name = res.get('merchant_name', 'Merchant')
         status_val = res.get('status', 'Unknown')
@@ -1209,5 +1228,6 @@ with t6:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
 
 
