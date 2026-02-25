@@ -176,8 +176,8 @@ def validate_merchant_risk(text, url, api_key):
     
     TASK:
     1. Categories - Find ALL offerings and classify them STRICTLY into:
-       - 'preferred_categories_found': Only use "Walking tours", "Bus/Car/Boat tours", "Hiking & trekking".
-       - 'red_flag_categories_found': Only use "Food tours", "Dining experiences", "Private tours", "ATV & All Wheel Drive".
+       - 'preferred_categories_found': Only use "Bus tours", "Motorcycle/Scooter/Segway tours", "Hiking & trekking tours", "Walking tours", "Boat tours", "Car tours", "Cruise tours".
+       - 'red_flag_categories_found': Only use "Air tours", "Attraction tickets", "ATV/All Wheel Drive tours", "Bicycle tours", "Food tours", "Food coupons", "Hop-on Hop-off bus", "Kayaking tours", "Mobility transportation", "Multiday tours", "Outlet tours", "Point-to-point tickets", "Private transfers", "Railway tours", "Recurring shows", "Shore excursions", "Ski tours", "Spa/Beauty", "Theme parks/Water parks", "Transportation passes", "Travel convenience", "Wifi & SIM".
        - 'other_categories_found': List ANY other activities they offer not listed above (e.g., Helicopter flights, Museum tickets, Spa).
     2. Assess legitimacy (1-100) and provide a 'score_reason' (Look for professional booking systems, contact info, address).
     3. Make a final decision ('Approved' or 'Rejected'). Reject them if they heavily focus on Red Flag categories or have low legitimacy. Approve if they offer Preferred categories and look professional.
@@ -1180,3 +1180,4 @@ with t6:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
