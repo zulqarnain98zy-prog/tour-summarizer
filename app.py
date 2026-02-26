@@ -987,7 +987,7 @@ with st.sidebar:
     target_lang = st.selectbox("🌐 Target Language", ["English", "Chinese (Traditional)", "Chinese (Simplified)", "Korean", "Japanese", "Thai", "Vietnamese", "Indonesian"])
     st.divider()
 
-t1, t2, t3, t4, t5, t6 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "🛡️ Merchant Validator", "📝 Grammar Check"])
+t1, t2, t3, t4, t5, t6, t7 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "🛡️ Merchant Validator", "📝 Grammar Check", "🔎 Klook Search"])
 
 with t1:
     url = st.text_input("Paste Tour Link")
@@ -1251,7 +1251,53 @@ with t6:
                 st.text_area("Result (Copy from here):", value=fixed_text, height=250)
                 st.success("Correction Complete!")
 
+# --- TAB 7 UI (KLOOK SEARCH) ---
+with t7:
+    st.header("🔎 Check Klook Availability")
+    st.info("Paste a competitor's tour link or type the activity name to check if it already exists on Klook.")
+    
+    klook_search_input = st.text_input("Paste Tour Link or Name:", key="klook_search_tab")
+    
+    if klook_search_input:
+        query_text = klook_search_input
+        
+        # SMART PARSER: If it's a URL, extract the slug to make a clean search term
+        if klook_search_input.startswith("http"):
+            try:
+                parsed = urllib.parse.urlparse(klook_search_input)
+                path_segments = [seg for seg in parsed.path.split('/') if seg]
+                if path_segments:
+                    # Grab the last part of the URL (e.g., 'huacachina-and-paracas-tour')
+                    slug = path_segments[-1]
+                    # Remove file extensions like .html if they exist
+                    slug = slug.split('.')[0]
+                    # Replace hyphens with spaces and capitalize
+                    query_text = slug.replace('-', ' ').replace('_', ' ').title()
+                else:
+                    query_text = parsed.netloc.replace('www.', '')
+            except:
+                pass # Fallback to raw text if parsing fails
+        
+        st.write(f"**Extracted Search Term:** `{query_text}`")
+        
+        # Generate the Search Links
+        encoded_google_term = urllib.parse.quote(f"site:klook.com {query_text}")
+        google_klook_url = f"https://www.google.com/search?q={encoded_google_term}"
+        
+        encoded_direct_term = urllib.parse.quote(query_text)
+        direct_klook_url = f"https://www.klook.com/search/result/?query={encoded_direct_term}"
+        
+        st.markdown("### 🚀 Search Options")
+        c1, c2, c3 = st.columns([1, 1, 1])
+        with c1: 
+            st.link_button("🟠 Google Search (site:klook.com)", google_klook_url, use_container_width=True)
+        with c2: 
+            st.link_button("🟠 Direct Search on Klook", direct_klook_url, use_container_width=True)
+        with c3:
+            st.empty() # Empty column just to keep buttons a nice size
+
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
 
