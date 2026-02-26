@@ -1253,7 +1253,7 @@ with t6:
 
 # --- TAB 7 UI (KLOOK SEARCH) ---
 with t7:
-    st.header("🔎 Check Klook Availability")
+    st.header("🔎 Activity Similarity Check")
     st.info("Paste a competitor's tour link or type the activity name to check if it already exists on Klook.")
     
     klook_search_input = st.text_input("Paste Tour Link or Name:", key="klook_search_tab")
@@ -1299,5 +1299,6 @@ with t7:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
 
 
