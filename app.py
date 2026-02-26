@@ -1147,7 +1147,7 @@ with t4:
 
 # --- TAB 5 UI (UPDATED ADVANCED MERCHANT VALIDATOR) ---
 with t5:
-    st.header("🛡️ Merchant Risk Assessment (Advanced Vetting)")
+    st.header("🛡️ Merchant Risk Assessment")
     m_url = st.text_input("Merchant Website URL", key="m_url")
     m_text = st.text_area("About Us / Business Text (Optional)", key="m_text")
     
@@ -1299,6 +1299,7 @@ with t7:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
 
 
 
