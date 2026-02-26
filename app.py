@@ -461,7 +461,11 @@ def get_working_model_name(api_key):
         return available_models[0] if available_models else "gemini-1.5-flash"
     except: 
         return "gemini-1.5-flash"
-
+        
+def sanitize_text(text):
+    if not text: return ""
+    text = text.encode('utf-8', 'ignore').decode('utf-8')
+    return text.replace("\\", "\\\\")[:95000]
 
 # --- KLOOK SELLING POINTS LIST ---
 SELLING_POINTS_LIST = """
@@ -1250,3 +1254,4 @@ with t6:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
