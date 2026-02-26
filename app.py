@@ -442,7 +442,9 @@ def create_pdf(data):
     doc.build(story)
     return buffer.getvalue()
 
+
 # --- SMART MODEL FINDER (FIXED WITH MEMORY CACHE) ---
+# This stops the script from wasting API calls by caching the correct model!
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_working_model_name(api_key):
     genai.configure(api_key=api_key)
@@ -456,9 +458,10 @@ def get_working_model_name(api_key):
             for model in available_models:
                 if pref in model: return model
                 
-        return available_models[0] if available_models else "models/gemini-1.5-flash"
+        return available_models[0] if available_models else "gemini-1.5-flash"
     except: 
-        return "models/gemini-1.5-flash"
+        return "gemini-1.5-flash"
+
 
 # --- KLOOK SELLING POINTS LIST ---
 SELLING_POINTS_LIST = """
@@ -926,35 +929,53 @@ def render_output(json_text, url_input=None):
         st.header("🔧 Automation Data")
         st.code(json.dumps(data, indent=4), language="json")
 
-# --- SMART ROTATION (FIXED: REMOVED OVERWRITE LOGIC) ---
+
+# --- SMART ROTATION (FIXED ERROR EXPOSURE) ---
 def smart_rotation_wrapper(text, keys, lang="English"):
     if not keys: return "⚠️ No API keys found."
-    random.shuffle(keys)
-    max_retries = 3
-    for attempt in range(max_retries):
-        for key in keys:
+    
+    shuffled_keys = list(keys)
+    random.shuffle(shuffled_keys)
+    last_error = ""
+    
+    for attempt in range(2): # Give the whole list of keys 2 full attempts
+        for key in shuffled_keys:
             result = call_gemini_json_summary(text, key, lang)
-            if result == "429_LIMIT":
-                time.sleep(1)
+            
+            # If it's a quota error, log it and instantly try the next key
+            if result == "429_LIMIT" or "429" in str(result):
+                last_error = "429 Quota Exceeded on this key."
+                time.sleep(0.5)
                 continue
-            if "Error" not in result: 
-                # POST-PROCESSING
-                try:
-                    d = json.loads(result)
-                    
-                    if "basic_info" in d and "highlights" in d["basic_info"]:
-                        cleaned_highlights = [h.rstrip('.') for h in d["basic_info"]["highlights"]]
-                        d["basic_info"]["highlights"] = cleaned_highlights
-                    
-                    if "basic_info" in d and "what_to_expect" in d["basic_info"]:
-                        wte = d["basic_info"]["what_to_expect"]
-                        if wte.endswith("."): wte = wte[:-1]
-                        d["basic_info"]["what_to_expect"] = wte
-                    
-                    result = json.dumps(d)
-                except: pass
-                return result
-    return "⚠️ Server Busy. Try again."
+            
+            # If it is another AI error (like 404), log it and try next key
+            if "Error" in str(result):
+                last_error = result
+                continue
+                
+            # SUCCESS! Process the JSON
+            try:
+                # Clean up markdown formatting if the AI added it
+                clean_result = result.replace("```json", "").replace("```", "").strip()
+                d = json.loads(clean_result)
+                
+                if "basic_info" in d and "highlights" in d["basic_info"]:
+                    d["basic_info"]["highlights"] = [h.rstrip('.') for h in d["basic_info"]["highlights"]]
+                
+                if "basic_info" in d and "what_to_expect" in d["basic_info"]:
+                    wte = d["basic_info"]["what_to_expect"]
+                    if wte.endswith("."): wte = wte[:-1]
+                    d["basic_info"]["what_to_expect"] = wte
+                
+                return json.dumps(d)
+            except: 
+                pass
+            
+            return result
+            
+    # If all keys fail, it will now tell you EXACTLY why!
+    return f"⚠️ AI Failed. Last Error: {last_error}"
+
 
 # --- MAIN APP LOGIC ---
 with st.sidebar:
@@ -990,7 +1011,7 @@ with t1:
                 st.session_state['gen_result'] = result
                 st.session_state['url_input'] = url
             
-            if "Busy" in result or "Error" in result:
+            if "Busy" in result or "Error" in result or "Failed" in result:
                 status.update(label="❌ AI Failed", state="error")
                 st.error(result)
             else:
@@ -1003,12 +1024,14 @@ with t2:
         if not keys: st.error("❌ No Keys"); st.stop()
         st.session_state['raw_text_content'] = raw_text 
         result = smart_rotation_wrapper(raw_text, keys, target_lang)
-        if "Busy" not in result and "Error" not in result:
+        if "Busy" not in result and "Error" not in result and "Failed" not in result:
             st.session_state['gen_result'] = result
             try:
                 d = json.loads(result)
                 if "basic_info" in d: st.session_state['product_context'] = d["basic_info"].get("main_attractions", "")
             except: pass
+        else:
+            st.error(result)
 
 with t3:
     st.info("Upload a PDF brochure or document to summarize.")
@@ -1028,7 +1051,7 @@ with t3:
             status.write(f"✅ Extracted {len(pdf_text)} chars. Calling AI...")
             result = smart_rotation_wrapper(pdf_text, keys, target_lang)
             
-            if "Busy" not in result and "Error" not in result:
+            if "Busy" not in result and "Error" not in result and "Failed" not in result:
                 st.session_state['gen_result'] = result
                 try:
                     d = json.loads(result)
@@ -1129,10 +1152,9 @@ with t5:
         if not keys: st.error("❌ No Keys"); st.stop()
         
         with st.status("🕵️ Auditing Merchant & Checking Categories...", expanded=True) as status:
-            # FIXED: Passing ALL keys so the retry loop works
             risk_res = validate_merchant_risk(m_text, m_url, keys)
             
-            if "error" in risk_res and len(risk_res) == 2: # Check if it completely failed
+            if "error" in risk_res and len(risk_res) == 2: 
                  status.update(label="❌ Audit Failed!", state="error")
                  st.error(risk_res["error"])
             else:
@@ -1228,9 +1250,3 @@ with t6:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
-
-
-
-
-
-
