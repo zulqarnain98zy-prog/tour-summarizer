@@ -987,7 +987,7 @@ with st.sidebar:
     target_lang = st.selectbox("🌐 Target Language", ["English", "Chinese (Traditional)", "Chinese (Simplified)", "Korean", "Japanese", "Thai", "Vietnamese", "Indonesian"])
     st.divider()
 
-t1, t2, t3, t4, t5, t6, t7 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "🛡️ Merchant Validator", "📝 Grammar Check", "🔎 Klook Search"])
+t1, t2, t3, t4, t5, t6, t7 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "🛡️ Merchant Screening Tool", "📝 Grammar Check", "🔎 Klook Search"])
 
 with t1:
     url = st.text_input("Paste Tour Link")
@@ -1299,6 +1299,7 @@ with t7:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
 
 
 
