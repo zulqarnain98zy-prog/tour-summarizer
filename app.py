@@ -1199,21 +1199,21 @@ with t5:
         c_pref, c_red, c_other = st.columns(3)
         
         with c_pref:
-            st.write("🟢 **Preferred Verticals**")
+            st.write("🟢 **Approval Criterias**")
             items = res.get('preferred_categories_found', [])
             if items:
                 for c in items: st.success(f"✅ {c}")
             else: st.caption("None found.")
                 
         with c_red:
-            st.write("🔴 **Red-Flag Verticals**")
+            st.write("🔴 **Reject Criterias**")
             items = res.get('red_flag_categories_found', [])
             if items:
                 for c in items: st.error(f"🚩 {c}")
             else: st.caption("None found.")
                 
         with c_other:
-            st.write("⚪ **Other Verticals**")
+            st.write("⚪ **Other Criterias**")
             items = res.get('other_categories_found', [])
             if items:
                 for c in items: st.info(f"🔹 {c}")
@@ -1299,6 +1299,7 @@ with t7:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
 
 
 
