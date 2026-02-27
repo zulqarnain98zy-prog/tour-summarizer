@@ -1199,7 +1199,7 @@ with t5:
         c_pref, c_red, c_other = st.columns(3)
         
         with c_pref:
-            st.write("🟢 **Approval Criterias**")
+            st.write("🟢 **Approve Criterias**")
             items = res.get('preferred_categories_found', [])
             if items:
                 for c in items: st.success(f"✅ {c}")
@@ -1299,6 +1299,7 @@ with t7:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
 
 
 
