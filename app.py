@@ -174,8 +174,8 @@ def validate_merchant_risk(text, url, keys):
     
     TASK:
     1. Categories - Find ALL offerings and classify them STRICTLY into:
-       - 'preferred_categories_found': Only use "Walking tours", "Bus/Car/Boat tours", "Hiking & trekking".
-       - 'red_flag_categories_found': Only use "Food tours", "Dining experiences", "Private tours", "ATV & All Wheel Drive".
+       - 'approve_categories_found': Only use "Attraction tickets", "Recurring shows", "Theme park", "Water park", "Transportation pass".
+       - 'red_flag_categories_found': Only use "Food tours", "Dining experiences", "Private tours", "Walking tours", "Bus/Car/Boat tours", "Hiking & trekking", "ATV & All Wheel Drive", "Air tours", "ATV/All Wheel Drive tours", "Bicycle tours", "Food tours", "Food coupons", "Hop-on Hop-off bus", "Kayaking tours", "Multiday tours", "Outlet tours", "Private transfers", "Railway tours", "Shore excursions", "Ski tours", "Spa/Beauty", "Wifi & SIM".
        - 'other_categories_found': List ANY other activities they offer not listed above.
     2. Assess legitimacy (1-100) and provide a 'score_reason'.
     3. Make a final decision ('Approved' or 'Rejected').
@@ -1299,6 +1299,7 @@ with t7:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
 
 
 
