@@ -594,15 +594,23 @@ def regenerate_description_only(text, api_key, lang="English"):
         return response.text.strip()
     except: return "Error regenerating description."
 
-# --- GRAMMAR CHECKER FUNCTION (UPDATED WITH KEY ROTATION) ---
+# --- GRAMMAR CHECKER FUNCTION (UPDATED FOR ERROR LISTING) ---
 def fix_grammar_american(text, keys):
-    if not keys: return "AI Error: No API keys found."
+    if not keys: return {"error": "AI Error: No API keys found."}
     
     prompt = f"""
     Act as a professional editor.
     Task: Correct the grammar, spelling, and punctuation of the following text.
     Standard: American English.
-    Constraint: Keep the original tone and meaning. Do not add conversational filler. Return ONLY the corrected text.
+    Constraint: Keep the original tone and meaning.
+    
+    Return strict JSON in this format:
+    {{
+        "corrected_text": "The full corrected text here.",
+        "errors_found": [
+            {{"original": "wrong word or phrase", "correction": "right word", "reason": "Why it was changed"}}
+        ]
+    }}
     
     Input Text:
     {text}
@@ -616,21 +624,29 @@ def fix_grammar_american(text, keys):
         try:
             model_name = get_working_model_name(key)
             genai.configure(api_key=key)
-            model = genai.GenerativeModel(model_name)
+            # Force JSON output so we can separate the text and the error list
+            model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
             
             response = model.generate_content(prompt)
-            corrected_text = response.text.strip()
-            if corrected_text.endswith("."):
-                corrected_text = corrected_text[:-1]
+            
+            clean_json = response.text.strip()
+            if clean_json.startswith("```json"): clean_json = clean_json[7:]
+            if clean_json.endswith("```"): clean_json = clean_json[:-3]
+            
+            res_data = json.loads(clean_json.strip())
+            
+            # Remove trailing period if present (matching your previous logic)
+            if res_data.get("corrected_text", "").endswith("."):
+                res_data["corrected_text"] = res_data["corrected_text"][:-1]
                 
-            return corrected_text 
+            return res_data 
             
         except Exception as e:
             last_error = str(e)
             time.sleep(0.5) 
             continue 
             
-    return f"AI Error: All keys exhausted. Last error: {last_error}"
+    return {"error": f"AI Error: All keys exhausted. Last error: {last_error}"}
 
 # --- EMAIL DRAFTER ---
 def call_gemini_email_draft(json_data, api_key):
@@ -1219,7 +1235,7 @@ with t5:
                 for c in items: st.info(f"🔹 {c}")
             else: st.caption("None found.")
 
-# --- TAB 6 UI (NEW GRAMMAR CHECKER) ---
+# --- TAB 6 UI (NEW GRAMMAR CHECKER WITH ERROR LIST) ---
 with t6:
     st.header("📝 Grammar Checker (American English)")
     st.info("Paste your text below to correct grammar and check word count.")
@@ -1231,12 +1247,15 @@ with t6:
         if not keys: st.error("❌ No API Keys"); st.stop()
         if not text_input: st.warning("⚠️ Please enter text first."); st.stop()
         
-        with st.spinner("Correcting Grammar..."):
-            fixed_text = fix_grammar_american(text_input, keys)
+        with st.spinner("Analyzing and Correcting Grammar..."):
+            grammar_res = fix_grammar_american(text_input, keys)
             
-            if "AI Error" in fixed_text:
-                st.error(fixed_text)
+            if "error" in grammar_res:
+                st.error(grammar_res["error"])
             else:
+                fixed_text = grammar_res.get("corrected_text", "")
+                errors_list = grammar_res.get("errors_found", [])
+                
                 # Calculate counts
                 wc_original = len(text_input.split())
                 wc_fixed = len(fixed_text.split())
@@ -1247,8 +1266,26 @@ with t6:
                 c2.metric("Result Words", wc_fixed, delta=wc_fixed-wc_original)
                 c3.metric("Character Count", char_count)
                 
-                st.subheader("✅ Corrected Text")
-                st.text_area("Result (Copy from here):", value=fixed_text, height=250)
+                st.divider()
+                
+                # Create two columns for the output (2/3 width for text, 1/3 width for errors)
+                out_col1, out_col2 = st.columns([2, 1])
+                
+                with out_col1:
+                    st.subheader("✅ Corrected Text")
+                    st.text_area("Result (Copy from here):", value=fixed_text, height=250, label_visibility="collapsed")
+                
+                with out_col2:
+                    st.subheader("🔍 Errors Fixed")
+                    # Put it inside a scrollable container so it doesn't stretch the page too long
+                    with st.container(height=250):
+                        if errors_list:
+                            for err in errors_list:
+                                st.markdown(f"**❌ {err.get('original', '')}** \n**✅ {err.get('correction', '')}** \n*{err.get('reason', '')}*")
+                                st.markdown("---")
+                        else:
+                            st.success("No grammatical errors found! Your text was perfect.")
+                            
                 st.success("Correction Complete!")
 
 # --- TAB 7 UI (KLOOK SEARCH) ---
@@ -1299,6 +1336,7 @@ with t7:
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
+
 
 
 
