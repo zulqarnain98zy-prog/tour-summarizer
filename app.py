@@ -1105,6 +1105,11 @@ with t4:
                 except Exception:
                     st.warning(f"⚠️ Could not load image {i+1}")
 
+    # Initialize memory for the processed images so they don't disappear
+    if 'processed_images_data' not in st.session_state:
+        st.session_state['processed_images_data'] = []
+        st.session_state['zip_buffer'] = None
+
     if st.button("Process Selected Images"):
         keys = get_all_keys()
         total_items = (files if files else []) + selected_scraped
@@ -1112,9 +1117,10 @@ with t4:
         if not total_items:
             st.warning("⚠️ No images selected.")
         else:
+            st.session_state['processed_images_data'] = [] # Clear old data
             zip_buf = io.BytesIO()
+            
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                
                 prog_bar = st.progress(0)
                 total_count = len(total_items)
                 
@@ -1135,27 +1141,43 @@ with t4:
                     if b_img:
                         zf.writestr(f"resized_{fname}", b_img)
                         
-                        c1, c2 = st.columns([1, 2])
-                        with c1:
-                            st.image(b_img, caption=fname, use_column_width=True)
-                        with c2:
-                            caption_text = ""
-                            if enable_captions and keys:
-                                caption_text = call_gemini_caption(b_img, random.choice(keys), context_str=manual_context)
-                            
-                            st.text_area(f"Caption for {fname}", value=caption_text, height=100, key=f"cap_{idx}")
-                            
-                            st.download_button(
-                                label=f"⬇️ Download {fname}",
-                                data=b_img,
-                                file_name=f"resized_{fname}",
-                                mime="image/jpeg",
-                                key=f"btn_{idx}"
-                            )
-                        st.divider()
-
+                        # Generate caption ONCE and save it
+                        caption_text = ""
+                        if enable_captions and keys:
+                            caption_text = call_gemini_caption(b_img, random.choice(keys), context_str=manual_context)
+                        
+                        # Store everything in session state memory
+                        st.session_state['processed_images_data'].append({
+                            "fname": fname,
+                            "b_img": b_img,
+                            "caption": caption_text,
+                            "idx": idx
+                        })
+                        
+            st.session_state['zip_buffer'] = zip_buf.getvalue()
             st.success("✅ All images processed!")
-            st.download_button("⬇️ Download All (ZIP)", zip_buf.getvalue(), "klook_images.zip", "application/zip")
+
+    # DISPLAY SECTION (Renders safely from Memory without disappearing)
+    if st.session_state.get('processed_images_data'):
+        for item in st.session_state['processed_images_data']:
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                st.image(item["b_img"], caption=item["fname"], use_column_width=True)
+            with c2:
+                # The unique key ensures if the user manually edits the caption, it saves their edits!
+                st.text_area(f"Caption for {item['fname']}", value=item["caption"], height=100, key=f"cap_{item['idx']}")
+                
+                st.download_button(
+                    label=f"⬇️ Download {item['fname']}",
+                    data=item["b_img"],
+                    file_name=f"resized_{item['fname']}",
+                    mime="image/jpeg",
+                    key=f"btn_{item['idx']}"
+                )
+            st.divider()
+            
+        if st.session_state.get('zip_buffer'):
+            st.download_button("⬇️ Download All (ZIP)", st.session_state['zip_buffer'], "klook_images.zip", "application/zip")
 
 # --- TAB 5 UI (UPDATED ADVANCED MERCHANT VALIDATOR) ---
 with t5:
