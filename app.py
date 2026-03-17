@@ -514,14 +514,10 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - Select EXACTLY 3-5 tags from the list below. Do NOT invent new ones.
     - List: {SELLING_POINTS_LIST}
     
-    **SETTINGS DATA (CRITICAL - READ CAREFULLY):**
+**SETTINGS DATA (CRITICAL - READ CAREFULLY):**
     - 'group_type': Infer from text. Choose ONLY one: 'Private', 'Join-in (small group)', or 'Join-in (big group)'.
-    - 'min_pax': Look for minimum booking requirements. Default to "1" if not found.
-    - 'max_pax': **LOOK FOR EXPLICIT LIMITS** (e.g., "Maximum 24 guests", "Up to 12 people"). 
-       - ONLY if NO specific number is found in text, use these defaults:
-       - 'Join-in (small group)' -> "15"
-       - 'Join-in (big group)' -> "50"
-       - 'Private' -> "99"
+    - 'min_pax': Look for explicit minimum booking requirements. If not found, return "TBC".
+    - 'max_pax': Look for explicit maximum capacity limits. If not found, return "TBC". DO NOT invent or default to any numbers.
     
     **ITINERARY & TIMING:**
     - **Start Time:** If a range is given (e.g., "Pickup 7:00am - 8:00am"), extract the **START** time (e.g., "07:00"). Do NOT average them.
@@ -788,8 +784,8 @@ def render_output(json_text, url_input=None):
         
         # NEW MIN/MAX DISPLAY
         c_min, c_max = st.columns(2)
-        c_min.metric("📉 Min Pax", info.get('min_pax', '1'))
-        c_max.metric("📈 Max Pax", info.get('max_pax', '15'))
+        c_min.metric("📉 Min Pax", info.get('min_pax', 'TBC'))
+        c_max.metric("📈 Max Pax", info.get('max_pax', 'TBC'))
         
         st.divider()
         st.write("**🌟 Highlights:**")
