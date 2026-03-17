@@ -500,7 +500,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - Remove accents: 'ñ' -> 'n', 'é' -> 'e'.
     
     **CRITICAL ACCURACY RULES:**
-    1. **NO HALLUCINATION:** If pickup info or duration is not in the text, return "Check with Merchant".
+    1. **NO HALLUCINATION:** If pickup info or duration is not in the text, return "To be confirmed".
     2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-120 words**. Count your words.
     3. **NO FULL STOP:** The 'what_to_expect' paragraph MUST NOT end with a full stop (period).
     
