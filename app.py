@@ -516,8 +516,8 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     
 **SETTINGS DATA (CRITICAL - READ CAREFULLY):**
     - 'group_type': Infer from text. Choose ONLY one: 'Private', 'Join-in (small group)', or 'Join-in (big group)'.
-    - 'min_pax': Look for explicit minimum booking requirements. If not found, return "TBC".
-    - 'max_pax': Look for explicit maximum capacity limits. If not found, return "TBC". DO NOT invent or default to any numbers.
+    - 'min_pax': Look for explicit minimum booking requirements. If not found, return "Check with Merchant".
+    - 'max_pax': Look for explicit maximum capacity limits. If not found, return "Check with Merchant". DO NOT invent or default to any numbers.
     
     **ITINERARY & TIMING:**
     - **Start Time:** If a range is given (e.g., "Pickup 7:00am - 8:00am"), extract the **START** time (e.g., "07:00"). Do NOT average them.
@@ -784,8 +784,8 @@ def render_output(json_text, url_input=None):
         
         # NEW MIN/MAX DISPLAY
         c_min, c_max = st.columns(2)
-        c_min.metric("📉 Min Pax", info.get('min_pax', 'TBC'))
-        c_max.metric("📈 Max Pax", info.get('max_pax', 'TBC'))
+        c_min.metric("📉 Min Pax", info.get('min_pax', 'Check with Merchant'))
+        c_max.metric("📈 Max Pax", info.get('max_pax', 'Check with Merchant'))
         
         st.divider()
         st.write("**🌟 Highlights:**")
