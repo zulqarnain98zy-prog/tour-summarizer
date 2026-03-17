@@ -250,14 +250,16 @@ def validate_merchant_risk(text, url, keys):
             
     return {"error": f"AI Audit Failed on all keys. Last Error: {last_error}", "merchant_name": inferred_name}
 
-# --- IMAGE RESIZING LOGIC (HIGH QUALITY FIX) ---
+# --- IMAGE RESIZING LOGIC (ENHANCED FOR QUALITY DIAGNOSTICS) ---
 def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
-    if Image is None: return None, "⚠️ Error: 'Pillow' library missing."
+    if Image is None: return None, 0, 0, "⚠️ Error: 'Pillow' library missing."
     try:
         if isinstance(image_input, bytes):
             img = Image.open(io.BytesIO(image_input))
         else:
             img = Image.open(image_input)
+            
+        orig_w, orig_h = img.size
             
         if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
             background = Image.new('RGB', img.size, (255, 255, 255))
@@ -270,9 +272,11 @@ def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
 
         target_width = 1280
         target_height = 800
+        # LANCZOS is already the highest quality resizer available mathematically
         img_resized = ImageOps.fit(img, (target_width, target_height), method=Image.Resampling.LANCZOS, centering=alignment)
         
         buf = io.BytesIO()
+        # High Quality Save settings (95% quality, no color subsampling)
         img_resized.save(
             buf, 
             format='JPEG', 
@@ -280,9 +284,9 @@ def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
             subsampling=0,        
             optimize=True         
         )
-        return buf.getvalue(), None
+        return buf.getvalue(), orig_w, orig_h, None
     except Exception as e:
-        return None, f"Error processing image: {e}"
+        return None, 0, 0, f"Error processing image: {e}"
 
 # --- CUSTOM SSL ADAPTER ---
 class LegacySSLAdapter(HTTPAdapter):
@@ -1105,7 +1109,7 @@ with t4:
                 except Exception:
                     st.warning(f"⚠️ Could not load image {i+1}")
 
-    # Initialize memory for the processed images so they don't disappear
+    # Use the persistent memory memory for processed images
     if 'processed_images_data' not in st.session_state:
         st.session_state['processed_images_data'] = []
         st.session_state['zip_buffer'] = None
@@ -1129,27 +1133,28 @@ with t4:
                     
                     if hasattr(item, 'read'): 
                         fname = item.name
-                        b_img, err = resize_image_klook_standard(item, align_map[c_align])
+                        b_img, orig_w, orig_h, err = resize_image_klook_standard(item, align_map[c_align])
                     else: 
                         fname = f"web_image_{idx}.jpg"
                         try:
                             headers = {'User-Agent': 'Mozilla/5.0'}
                             resp = requests.get(item, headers=headers, timeout=10)
-                            b_img, err = resize_image_klook_standard(resp.content, align_map[c_align])
+                            b_img, orig_w, orig_h, err = resize_image_klook_standard(resp.content, align_map[c_align])
                         except: b_img = None
                     
                     if b_img:
                         zf.writestr(f"resized_{fname}", b_img)
                         
-                        # Generate caption ONCE and save it
                         caption_text = ""
                         if enable_captions and keys:
                             caption_text = call_gemini_caption(b_img, random.choice(keys), context_str=manual_context)
                         
-                        # Store everything in session state memory
+                        # Save the diagnostics into memory too!
                         st.session_state['processed_images_data'].append({
                             "fname": fname,
                             "b_img": b_img,
+                            "orig_w": orig_w,
+                            "orig_h": orig_h,
                             "caption": caption_text,
                             "idx": idx
                         })
@@ -1157,14 +1162,29 @@ with t4:
             st.session_state['zip_buffer'] = zip_buf.getvalue()
             st.success("✅ All images processed!")
 
-    # DISPLAY SECTION (Renders safely from Memory without disappearing)
+    # DISPLAY SECTION (Now includes quality check info)
     if st.session_state.get('processed_images_data'):
         for item in st.session_state['processed_images_data']:
             c1, c2 = st.columns([1, 2])
             with c1:
                 st.image(item["b_img"], caption=item["fname"], use_column_width=True)
             with c2:
-                # The unique key ensures if the user manually edits the caption, it saves their edits!
+                # QUALITY CHECK DIAGNOSTIC BOX
+                with st.container(border=True):
+                    ow = item.get("orig_w", 0)
+                    oh = item.get("orig_w", 0)
+                    
+                    qc_1, qc_2 = st.columns(2)
+                    qc_1.write(f"📏 **Uploaded Size:** {ow} x {oh}")
+                    
+                    # Decide ifupscaling happened or just standard fit
+                    if ow < 1280 or oh < 800:
+                         qc_2.error("⚠️ 🔴 Source Low Resolution (Tool had to upscale/stretch the original)")
+                    elif ow == 1280 and oh == 800:
+                         qc_2.success("✅ Perfect Match (Original was exact standard size)")
+                    else:
+                         qc_2.info("✅ Standard Fit (Original was large enough, lost slight detail to downscale)")
+                
                 st.text_area(f"Caption for {item['fname']}", value=item["caption"], height=100, key=f"cap_{item['idx']}")
                 
                 st.download_button(
