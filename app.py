@@ -1144,7 +1144,7 @@ with t4:
         if not total_items:
             st.warning("⚠️ No images selected.")
         else:
-           st.session_state['processed_images_data'] = [] # Clear old data
+            st.session_state['processed_images_data'] = []
             zip_buf = io.BytesIO()
             
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1180,7 +1180,7 @@ with t4:
                             "orig_w": orig_w,
                             "orig_h": orig_h,
                             "caption": caption_text,
-                            "b64_string": b64_str, # <-- This is the magic line that connects to your extension!
+                            "b64_string": b64_str, 
                             "idx": idx
                         })
                         
