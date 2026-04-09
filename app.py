@@ -6,6 +6,7 @@ import re
 import urllib.parse
 import json
 import requests
+import base64
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, NotFound, InvalidArgument
@@ -105,6 +106,8 @@ if 'raw_text_content' not in st.session_state:
     st.session_state['raw_text_content'] = ""
 if 'merchant_result' not in st.session_state:
     st.session_state['merchant_result'] = None
+if 'processed_images_data' not in st.session_state:
+    st.session_state['processed_images_data'] = []
 
 # --- LOAD KEYS ---
 def get_all_keys():
@@ -250,9 +253,9 @@ def validate_merchant_risk(text, url, keys):
             
     return {"error": f"AI Audit Failed on all keys. Last Error: {last_error}", "merchant_name": inferred_name}
 
-# --- IMAGE RESIZING LOGIC (ENHANCED FOR QUALITY DIAGNOSTICS) ---
+# --- IMAGE RESIZING LOGIC (ENHANCED FOR QUALITY DIAGNOSTICS & BASE64) ---
 def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
-    if Image is None: return None, 0, 0, "⚠️ Error: 'Pillow' library missing."
+    if Image is None: return None, 0, 0, "⚠️ Error: 'Pillow' library missing.", None
     try:
         if isinstance(image_input, bytes):
             img = Image.open(io.BytesIO(image_input))
@@ -272,21 +275,25 @@ def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
 
         target_width = 1280
         target_height = 800
-        # LANCZOS is already the highest quality resizer available mathematically
         img_resized = ImageOps.fit(img, (target_width, target_height), method=Image.Resampling.LANCZOS, centering=alignment)
         
         buf = io.BytesIO()
-        # High Quality Save settings (95% quality, no color subsampling)
         img_resized.save(
             buf, 
             format='JPEG', 
-            quality=95,           
+            quality=95,            
             subsampling=0,        
             optimize=True         
         )
-        return buf.getvalue(), orig_w, orig_h, None
+        
+        # 💥 NEW: Convert to Base64 for the Extension 💥
+        image_bytes = buf.getvalue()
+        b64_encoded = base64.b64encode(image_bytes).decode('utf-8')
+        b64_string = f"data:image/jpeg;base64,{b64_encoded}"
+
+        return image_bytes, orig_w, orig_h, None, b64_string
     except Exception as e:
-        return None, 0, 0, f"Error processing image: {e}"
+        return None, 0, 0, f"Error processing image: {e}", None
 
 # --- CUSTOM SSL ADAPTER ---
 class LegacySSLAdapter(HTTPAdapter):
@@ -947,8 +954,24 @@ def render_output(json_text, url_input=None):
     
     with tabs[10]:
         st.header("🔧 Automation Data")
-        st.code(json.dumps(data, indent=4), language="json")
-
+        
+        # Create a copy of the data specifically for the extension
+        extension_payload = data.copy()
+        
+        # If there are processed images in the session memory, pack them in!
+        if st.session_state.get('processed_images_data'):
+            formatted_photos = []
+            for item in st.session_state['processed_images_data']:
+                formatted_photos.append({
+                    "filename": item["fname"],
+                    "caption": item["caption"],
+                    "base64": item.get("b64_string", "") # Add the Base64 string
+                })
+            
+            # Attach the array directly to the payload
+            extension_payload["processed_photos"] = formatted_photos
+            
+        st.code(json.dumps(extension_payload, indent=4), language="json")
 
 # --- SMART ROTATION (FIXED ERROR EXPOSURE) ---
 def smart_rotation_wrapper(text, keys, lang="English"):
@@ -1121,7 +1144,7 @@ with t4:
         if not total_items:
             st.warning("⚠️ No images selected.")
         else:
-            st.session_state['processed_images_data'] = [] # Clear old data
+           st.session_state['processed_images_data'] = [] # Clear old data
             zip_buf = io.BytesIO()
             
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1133,14 +1156,15 @@ with t4:
                     
                     if hasattr(item, 'read'): 
                         fname = item.name
-                        b_img, orig_w, orig_h, err = resize_image_klook_standard(item, align_map[c_align])
+                        b_img, orig_w, orig_h, err, b64_str = resize_image_klook_standard(item, align_map[c_align])
                     else: 
                         fname = f"web_image_{idx}.jpg"
                         try:
                             headers = {'User-Agent': 'Mozilla/5.0'}
                             resp = requests.get(item, headers=headers, timeout=10)
-                            b_img, orig_w, orig_h, err = resize_image_klook_standard(resp.content, align_map[c_align])
-                        except: b_img = None
+                            b_img, orig_w, orig_h, err, b64_str = resize_image_klook_standard(resp.content, align_map[c_align])
+                        except: 
+                            b_img, b64_str = None, None
                     
                     if b_img:
                         zf.writestr(f"resized_{fname}", b_img)
@@ -1149,13 +1173,14 @@ with t4:
                         if enable_captions and keys:
                             caption_text = call_gemini_caption(b_img, random.choice(keys), context_str=manual_context)
                         
-                        # Save the diagnostics into memory too!
+                        # 💥 NEW: SAVE BASE64 STRING INTO MEMORY 💥
                         st.session_state['processed_images_data'].append({
                             "fname": fname,
                             "b_img": b_img,
                             "orig_w": orig_w,
                             "orig_h": orig_h,
                             "caption": caption_text,
+                            "b64_string": b64_str, # <-- This is the magic line that connects to your extension!
                             "idx": idx
                         })
                         
