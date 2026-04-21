@@ -526,7 +526,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - List: {SELLING_POINTS_LIST}
     
 **SETTINGS DATA (CRITICAL - READ CAREFULLY):**
-    - 'group_type': Infer from text. Choose ONLY one: 'Private', 'Join-in (small group)', or 'Join-in (big group)'.
+    - 'group_type': If the tour is private, return 'Private'. If it is a shared/public tour, look at 'max_pax'. If max_pax is 20 or below, return 'Join-in (small group)'. If max_pax is 21 or above, return 'Join-in (big group)'.
     - 'min_pax': Look for explicit minimum booking requirements. If not explicitly stated, default to "1".
     - 'max_pax': Look for explicit maximum capacity limits. If not found, return "Check with Merchant". DO NOT invent or default to any numbers.
     
