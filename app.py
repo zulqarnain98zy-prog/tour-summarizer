@@ -1132,7 +1132,6 @@ with t4:
                 except Exception:
                     st.warning(f"⚠️ Could not load image {i+1}")
 
-    # Use the persistent memory memory for processed images
     if 'processed_images_data' not in st.session_state:
         st.session_state['processed_images_data'] = []
         st.session_state['zip_buffer'] = None
@@ -1144,7 +1143,7 @@ with t4:
         if not total_items:
             st.warning("⚠️ No images selected.")
         else:
-            st.session_state['processed_images_data'] = []
+            st.session_state['processed_images_data'] = [] 
             zip_buf = io.BytesIO()
             
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1171,9 +1170,10 @@ with t4:
                         
                         caption_text = ""
                         if enable_captions and keys:
-                            caption_text = call_gemini_caption(b_img, random.choice(keys), context_str=manual_context)
+                            # 💥 FIX: Passing 'keys' list to the function + adding delay!
+                            caption_text = call_gemini_caption(b_img, keys, context_str=manual_context)
+                            time.sleep(1.5) # Force wait between API calls to prevent 429 Quota Exceeded!
                         
-                        # 💥 NEW: SAVE BASE64 STRING INTO MEMORY 💥
                         st.session_state['processed_images_data'].append({
                             "fname": fname,
                             "b_img": b_img,
