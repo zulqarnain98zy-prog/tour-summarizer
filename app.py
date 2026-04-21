@@ -1165,7 +1165,7 @@ with t4:
                             resp = requests.get(item, headers=headers, timeout=10)
                             b_img, orig_w, orig_h, err, b64_str = resize_image_klook_standard(resp.content, align_map[c_align])
                         except: 
-                            b_img, orig_w, orig_h, b64_str = None, 0, 0, None
+                            b_img, orig_w, orig_h, err, b64_str = None, 0, 0, None, None
                     
                     if b_img:
                         zf.writestr(f"resized_{fname}", b_img)
@@ -1173,7 +1173,7 @@ with t4:
                         caption_text = ""
                         if enable_captions and keys:
                             # 💥 USING THE SMART PACING FUNCTION WE FIXED 💥
-                            caption_text = call_gemini_caption(b_img, keys, context_str=manual_context)
+                            caption_text = call_gemini_caption(b_img, random.choice(keys), context_str=manual_context)
                         
                         st.session_state['processed_images_data'].append({
                             "fname": fname,
