@@ -774,6 +774,19 @@ def render_output(json_text, url_input=None):
         return
         
     info = data.get("basic_info", {})
+    
+    # --- NEW: STRICT GROUP TYPE ENFORCER ---
+    current_group = info.get("group_type", "")
+    max_pax_val = str(info.get("max_pax", ""))
+    
+    # Only override if it's NOT a private tour, and max_pax is actually a number
+    if "Private" not in current_group and max_pax_val.isdigit():
+        if int(max_pax_val) <= 20:
+            info["group_type"] = "Join-in (small group)"
+        else:
+            info["group_type"] = "Join-in (big group)"
+    # ---------------------------------------
+
     inc = data.get("inclusions", {})
     pol = data.get("policies", {})
     seo = data.get("seo", {})
