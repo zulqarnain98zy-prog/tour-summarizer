@@ -920,7 +920,10 @@ def render_output(json_text, url_input=None):
             else:
                 st.info(faq or 'No FAQ found.')
 
-    with tabs[6]: st.code(str(seo.get("keywords")))
+    with tabs[6]: 
+        kw_list = seo.get("keywords", [])
+        kw_text = ", ".join(kw_list) if isinstance(kw_list, list) else str(kw_list)
+        st.code(kw_text, language="text")
     
     with tabs[7]:
         st.header("💰 Price & Margin Calculator")
