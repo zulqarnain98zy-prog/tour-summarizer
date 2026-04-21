@@ -672,10 +672,20 @@ def call_gemini_caption(image_bytes, api_key, context_str=""):
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
     prompt = f"Social media caption (10-12 words, experiential verb start, NO full stop, no emojis). Context: '{context_str}'"
+    
     try:
-        response = model.generate_content([prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
+        # 1. Wrap the bytes in a PIL Image object (The SDK loves this format)
+        img = Image.open(io.BytesIO(image_bytes))
+        
+        # 2. Pass the PIL Image directly into the array
+        response = model.generate_content([prompt, img])
+        
+        # 3. Return the text safely
         return response.text
-    except: return "Caption Failed"
+        
+    except Exception as e: 
+        # 4. Stop failing silently! Print the exact error so we can debug if it happens again.
+        return f"Caption Failed: {str(e)}"
 
 # --- HELPER: RENDER COPY BOX ---
 def copy_box(label, text, height=None):
@@ -1172,8 +1182,10 @@ with t4:
                         
                         caption_text = ""
                         if enable_captions and keys:
-                            # 💥 USING THE SMART PACING FUNCTION WE FIXED 💥
                             caption_text = call_gemini_caption(b_img, random.choice(keys), context_str=manual_context)
+                            
+                            # Add a 2-second delay to prevent rate-limiting crashes 
+                            time.sleep(2)
                         
                         st.session_state['processed_images_data'].append({
                             "fname": fname,
