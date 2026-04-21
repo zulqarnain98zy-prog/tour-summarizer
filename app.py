@@ -965,13 +965,14 @@ def render_output(json_text, url_input=None):
                 formatted_photos.append({
                     "filename": item["fname"],
                     "caption": item["caption"],
-                    "base64": item.get("b64_string", "") # Add the Base64 string
+                    "base64": item.get("b64_string", "") 
                 })
             
             # Attach the array directly to the payload
             extension_payload["processed_photos"] = formatted_photos
             
         st.code(json.dumps(extension_payload, indent=4), language="json")
+
 
 # --- SMART ROTATION (FIXED ERROR EXPOSURE) ---
 def smart_rotation_wrapper(text, keys, lang="English"):
@@ -1211,22 +1212,20 @@ with t4:
             st.session_state['zip_buffer'] = zip_buf.getvalue()
             st.success("✅ All images processed lightning fast!")
 
-    # DISPLAY SECTION (Now includes quality check info)
+    # DISPLAY SECTION 
     if st.session_state.get('processed_images_data'):
         for item in st.session_state['processed_images_data']:
             c1, c2 = st.columns([1, 2])
             with c1:
                 st.image(item["b_img"], caption=item["fname"], use_column_width=True)
             with c2:
-                # QUALITY CHECK DIAGNOSTIC BOX
                 with st.container(border=True):
                     ow = item.get("orig_w", 0)
-                    oh = item.get("orig_w", 0)
+                    oh = item.get("orig_h", 0)
                     
                     qc_1, qc_2 = st.columns(2)
                     qc_1.write(f"📏 **Uploaded Size:** {ow} x {oh}")
                     
-                    # Decide ifupscaling happened or just standard fit
                     if ow < 1280 or oh < 800:
                          qc_2.error("⚠️ 🔴 Source Low Resolution (Tool had to upscale/stretch the original)")
                     elif ow == 1280 and oh == 800:
@@ -1355,7 +1354,7 @@ with t6:
                 
                 st.divider()
                 
-                # Create two columns for the output (2/3 width for text, 1/3 width for errors)
+                # Create two columns for the output
                 out_col1, out_col2 = st.columns([2, 1])
                 
                 with out_col1:
@@ -1364,7 +1363,6 @@ with t6:
                 
                 with out_col2:
                     st.subheader("🔍 Errors Fixed")
-                    # Put it inside a scrollable container so it doesn't stretch the page too long
                     with st.container(height=250):
                         if errors_list:
                             for err in errors_list:
@@ -1385,22 +1383,18 @@ with t7:
     if klook_search_input:
         query_text = klook_search_input
         
-        # SMART PARSER: If it's a URL, extract the slug to make a clean search term
         if klook_search_input.startswith("http"):
             try:
                 parsed = urllib.parse.urlparse(klook_search_input)
                 path_segments = [seg for seg in parsed.path.split('/') if seg]
                 if path_segments:
-                    # Grab the last part of the URL (e.g., 'huacachina-and-paracas-tour')
                     slug = path_segments[-1]
-                    # Remove file extensions like .html if they exist
                     slug = slug.split('.')[0]
-                    # Replace hyphens with spaces and capitalize
                     query_text = slug.replace('-', ' ').replace('_', ' ').title()
                 else:
                     query_text = parsed.netloc.replace('www.', '')
             except:
-                pass # Fallback to raw text if parsing fails
+                pass 
         
         st.write(f"**Extracted Search Term:** `{query_text}`")
         
@@ -1418,17 +1412,8 @@ with t7:
         with c2: 
             st.link_button("🟠 Direct Search on Klook", direct_klook_url, use_container_width=True)
         with c3:
-            st.empty() # Empty column just to keep buttons a nice size
+            st.empty() 
 
 # --- ALWAYS RENDER IF DATA EXISTS ---
 if st.session_state['gen_result']:
     render_output(st.session_state['gen_result'], st.session_state['url_input'])
-
-
-
-
-
-
-
-
-
