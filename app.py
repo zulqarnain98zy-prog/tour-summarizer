@@ -527,7 +527,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     
 **SETTINGS DATA (CRITICAL - READ CAREFULLY):**
     - 'group_type': Infer from text. Choose ONLY one: 'Private', 'Join-in (small group)', or 'Join-in (big group)'.
-    - 'min_pax': Look for explicit minimum booking requirements. If not found, return "Check with Merchant".
+    - 'min_pax': Look for explicit minimum booking requirements. If not explicitly stated, default to "1".
     - 'max_pax': Look for explicit maximum capacity limits. If not found, return "Check with Merchant". DO NOT invent or default to any numbers.
     
     **ITINERARY & TIMING:**
