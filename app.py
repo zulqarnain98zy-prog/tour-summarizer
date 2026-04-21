@@ -16,7 +16,6 @@ import io
 import zipfile
 import ssl
 import unicodedata
-import concurrent.futures
 from requests.adapters import HTTPAdapter
 from urllib3.poolmanager import PoolManager
 
@@ -1107,7 +1106,7 @@ with t3:
                 status.update(label="❌ AI Failed", state="error")
                 st.error(result)
 
-# --- PHOTO RESIZER TAB (MULTI-THREADED FOR SPEED) ---
+# --- PHOTO RESIZER TAB (SEQUENTIAL & STABLE) ---
 with t4:
     st.info("Upload photos OR use photos scraped from the link.")
     
@@ -1150,11 +1149,12 @@ with t4:
             
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 prog_bar = st.progress(0)
-                status_text = st.empty()
                 total_count = len(total_items)
                 
-                # --- THREADED PROCESSING FUNCTION ---
-                def process_single(idx, item):
+                # --- SEQUENTIAL PROCESSING (STABLE & SAFE) ---
+                for idx, item in enumerate(total_items):
+                    prog_bar.progress((idx + 1) / total_count)
+                    
                     if hasattr(item, 'read'): 
                         fname = item.name
                         b_img, orig_w, orig_h, err, b64_str = resize_image_klook_standard(item, align_map[c_align])
@@ -1167,51 +1167,26 @@ with t4:
                         except: 
                             b_img, orig_w, orig_h, b64_str = None, 0, 0, None
                     
-                    caption_text = ""
-                    if b_img and enable_captions and keys:
-                        caption_text = call_gemini_caption(b_img, keys, context_str=manual_context)
+                    if b_img:
+                        zf.writestr(f"resized_{fname}", b_img)
                         
-                    return {
-                        "idx": idx,
-                        "fname": fname,
-                        "b_img": b_img,
-                        "orig_w": orig_w,
-                        "orig_h": orig_h,
-                        "caption": caption_text,
-                        "b64_string": b64_str
-                    }
-
-                # --- RUN CONCURRENTLY ---
-                status_text.write("🚀 Processing images in parallel (this makes it blazing fast)...")
-                results = []
-                
-                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                    # Submit all tasks
-                    future_to_idx = {executor.submit(process_single, i, item): i for i, item in enumerate(total_items)}
-                    
-                    completed_count = 0
-                    for future in concurrent.futures.as_completed(future_to_idx):
-                        completed_count += 1
-                        prog_bar.progress(completed_count / total_count)
-                        status_text.write(f"⏳ Processed {completed_count}/{total_count} images...")
-                        try:
-                            res = future.result()
-                            results.append(res)
-                        except Exception as e:
-                            pass
-                
-                # Sort results back to original order
-                results.sort(key=lambda x: x["idx"])
-                
-                # Save to Zip and Session State
-                for res in results:
-                    if res["b_img"]:
-                        zf.writestr(f"resized_{res['fname']}", res["b_img"])
-                        st.session_state['processed_images_data'].append(res)
+                        caption_text = ""
+                        if enable_captions and keys:
+                            # 💥 USING THE SMART PACING FUNCTION WE FIXED 💥
+                            caption_text = call_gemini_caption(b_img, keys, context_str=manual_context)
                         
-            status_text.empty()
+                        st.session_state['processed_images_data'].append({
+                            "fname": fname,
+                            "b_img": b_img,
+                            "orig_w": orig_w,
+                            "orig_h": orig_h,
+                            "caption": caption_text,
+                            "b64_string": b64_str, 
+                            "idx": idx
+                        })
+                        
             st.session_state['zip_buffer'] = zip_buf.getvalue()
-            st.success("✅ All images processed lightning fast!")
+            st.success("✅ All images processed successfully!")
 
     # DISPLAY SECTION 
     if st.session_state.get('processed_images_data'):
