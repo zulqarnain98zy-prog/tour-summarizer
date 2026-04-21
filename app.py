@@ -16,6 +16,7 @@ import io
 import zipfile
 import ssl
 import unicodedata
+import concurrent.futures
 from requests.adapters import HTTPAdapter
 from urllib3.poolmanager import PoolManager
 
