@@ -805,7 +805,7 @@ def render_output(json_text, url_input=None):
         
         # NEW MIN/MAX DISPLAY
         c_min, c_max = st.columns(2)
-        c_min.metric("📉 Min Pax", info.get('min_pax', 'Check with Merchant'))
+        c_min.metric("📉 Min Pax", info.get('min_pax', '1'))
         c_max.metric("📈 Max Pax", info.get('max_pax', 'Check with Merchant'))
         
         st.divider()
