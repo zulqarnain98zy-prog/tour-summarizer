@@ -1170,9 +1170,8 @@ with t4:
                         
                         caption_text = ""
                         if enable_captions and keys:
-                            # 💥 FIX: Passing 'keys' list to the function + adding delay!
+                            # 💥 FAST PACING: No artificial delay unless an error happens! 
                             caption_text = call_gemini_caption(b_img, keys, context_str=manual_context)
-                            time.sleep(1.5) # Force wait between API calls to prevent 429 Quota Exceeded!
                         
                         st.session_state['processed_images_data'].append({
                             "fname": fname,
