@@ -672,20 +672,19 @@ def call_gemini_email_draft(json_data, api_key):
 
 # --- CAPTION GENERATOR ---
 def call_gemini_caption(image_bytes, api_key, context_str=""):
-    model_name = get_working_model_name(api_key)
+    # Force 1.5 Flash to take advantage of the 1,500 daily free tier limit
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    
     prompt = f"Social media caption (10-12 words, experiential verb start, NO full stop, no emojis). Context: '{context_str}'"
     
     try:
-        # 1. Wrap the bytes in a PIL Image object (The SDK loves this format)
         img = Image.open(io.BytesIO(image_bytes))
-        
-        # 2. Pass the PIL Image directly into the array
         response = model.generate_content([prompt, img])
-        
-        # 3. Return the text safely
         return response.text
+        
+    except Exception as e: 
+        return f"Caption Failed: {str(e)}"
         
     except Exception as e: 
         # 4. Stop failing silently! Print the exact error so we can debug if it happens again.
