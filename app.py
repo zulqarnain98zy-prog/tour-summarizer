@@ -514,6 +514,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     1. **NO HALLUCINATION:** If pickup info or duration is not in the text, return "To be confirmed".
     2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-120 words** AND strictly **UNDER 800 characters**. Count both.
     3. **NO FULL STOP:** The 'what_to_expect' paragraph MUST NOT end with a full stop (period).
+    4. **POINT OF VIEW (CRITICAL):** NEVER use first-person pronouns ("we", "us", "our") when referring to the tour provider. Always replace them with "The operator" (e.g., change "We offer pick-ups" to "The operator offers pick-ups").
     
     **HIGHLIGHTS RULES (STRICT):**
     - **LENGTH:** Each bullet point must be **STRICTLY 10-12 words long**.
@@ -594,6 +595,7 @@ def regenerate_description_only(text, api_key, lang="English"):
     2. Do NOT end with a full stop/period.
     3. Language: {lang}
     4. Text only. No JSON.
+    5. POINT OF VIEW: NEVER use "we", "us", or "our". Always replace them with "The operator".
     
     **INPUT TEXT:**
     {sanitize_text(text)}
