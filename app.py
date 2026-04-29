@@ -455,7 +455,6 @@ def create_pdf(data):
 
 
 # --- SMART MODEL FINDER (FIXED WITH MEMORY CACHE) ---
-# This stops the script from wasting API calls by caching the correct model!
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_working_model_name(api_key):
     genai.configure(api_key=api_key)
@@ -463,15 +462,15 @@ def get_working_model_name(api_key):
         models = genai.list_models()
         available_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
         
-        # Will look for 1.5 or 2.5 flash automatically
-        priority_list = ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-pro"]
+        # Completely removed the dead 1.5 model. Prioritizing 2.5!
+        priority_list = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro"]
         for pref in priority_list:
             for model in available_models:
                 if pref in model: return model
                 
-        return available_models[0] if available_models else "gemini-1.5-flash"
+        return available_models[0] if available_models else "gemini-2.5-flash"
     except: 
-        return "gemini-1.5-flash"
+        return "gemini-2.5-flash"
         
 def sanitize_text(text):
     if not text: return ""
