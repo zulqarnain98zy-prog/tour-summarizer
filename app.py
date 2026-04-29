@@ -671,9 +671,10 @@ def call_gemini_email_draft(json_data, api_key):
 
 # --- CAPTION GENERATOR ---
 def call_gemini_caption(image_bytes, api_key, context_str=""):
-    # Force 1.5 Flash to take advantage of the 1,500 daily free tier limit
+    # Reverting back to the smart finder since you are on the Paid Tier!
+    model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel(model_name)
     
     prompt = f"Social media caption (10-12 words, experiential verb start, NO full stop, no emojis). Context: '{context_str}'"
     
@@ -683,6 +684,7 @@ def call_gemini_caption(image_bytes, api_key, context_str=""):
         return response.text
         
     except Exception as e: 
+        # 4. Stop failing silently! Print the exact error so we can debug if it happens again.
         return f"Caption Failed: {str(e)}"
 
 # --- HELPER: RENDER COPY BOX ---
