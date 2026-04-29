@@ -1068,12 +1068,6 @@ with t1:
     url = st.text_input("Paste Tour Link")
     if st.button("Generate from Link"):
         keys = get_all_keys()
-        
-        # --- TEMPORARY DEBUG VISUALIZER ---
-        safe_keys = [k[:10] + "..." for k in keys]
-        st.warning(f"🔍 DEBUG: App is currently using these keys: {safe_keys}")
-        # -----------------------------------
-        
         if not keys: st.error("❌ No API Keys"); st.stop()
         if not url: st.error("❌ Enter URL"); st.stop()
 
