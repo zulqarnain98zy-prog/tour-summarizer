@@ -563,14 +563,14 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
         "inclusions": {{ "included": ["Item 1"], "excluded": ["Item 2"] }},
         "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": ["FAQ content"] }},
         "seo": {{ "keywords": ["Key 1"] }},
-        "pricing": { 
+        "pricing": {{ 
             "details": "Original text string",
             "currency": "USD",
             "adult_price": 0.0,
             "child_price": 0.0,
             "infant_price": 0.0,
             "child_age": "0-15"
-        },
+        }},
         "analysis": {{ "ota_search_term": "Product Name" }}
     }}
     **INPUT TEXT:**
