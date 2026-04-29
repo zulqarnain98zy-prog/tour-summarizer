@@ -685,10 +685,6 @@ def call_gemini_caption(image_bytes, api_key, context_str=""):
         
     except Exception as e: 
         return f"Caption Failed: {str(e)}"
-        
-    except Exception as e: 
-        # 4. Stop failing silently! Print the exact error so we can debug if it happens again.
-        return f"Caption Failed: {str(e)}"
 
 # --- HELPER: RENDER COPY BOX ---
 def copy_box(label, text, height=None):
