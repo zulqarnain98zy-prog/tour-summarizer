@@ -536,6 +536,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     
     **PRICING EXTRACTION:**
     - Look for Adult, Child, and Infant prices. Extract as numbers.
+    - Extract child age range if specified (e.g., "0-15", "4-12"). If not found, return "N/A".
     - Detect Currency Code.
     
     **REQUIRED JSON STRUCTURE:**
@@ -562,13 +563,14 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
         "inclusions": {{ "included": ["Item 1"], "excluded": ["Item 2"] }},
         "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": ["FAQ content"] }},
         "seo": {{ "keywords": ["Key 1"] }},
-        "pricing": {{ 
+        "pricing": { 
             "details": "Original text string",
             "currency": "USD",
             "adult_price": 0.0,
             "child_price": 0.0,
-            "infant_price": 0.0
-        }},
+            "infant_price": 0.0,
+            "child_age": "0-15"
+        },
         "analysis": {{ "ota_search_term": "Product Name" }}
     }}
     **INPUT TEXT:**
@@ -938,10 +940,13 @@ def render_output(json_text, url_input=None):
         p_adult = price_data.get('adult_price', 0.0)
         p_child = price_data.get('child_price', 0.0)
         p_infant = price_data.get('infant_price', 0.0)
-        c1, c2, c3 = st.columns(3)
+        c_age = price_data.get('child_age', 'N/A')
+        
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Adult Price", f"{cur} {p_adult}")
         c2.metric("Child Price", f"{cur} {p_child}")
-        c3.metric("Infant Price", f"{cur} {p_infant}")
+        c3.metric("👦 Child Age", str(c_age))
+        c4.metric("Infant Price", f"{cur} {p_infant}")
         st.caption(f"Raw Details: {price_data.get('details', '')}")
         st.divider()
         st.subheader("🧮 Net Rate Calculator")
