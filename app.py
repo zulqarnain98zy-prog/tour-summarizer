@@ -831,13 +831,17 @@ def render_output(json_text, url_input=None):
         
         st.divider()
         
-        # WORD COUNT + REGENERATE BUTTON
+        # WORD COUNT, CHAR COUNT + REGENERATE BUTTON
         wte_text = info.get("what_to_expect", "")
         wte_count = len(wte_text.split())
+        wte_chars = len(wte_text)
         
         c1, c2 = st.columns([3, 1])
         with c1:
-            st.info(f"📝 **What to Expect** ({wte_count} words):")
+            if wte_chars > 800:
+                st.error(f"📝 **What to Expect** ({wte_count} words | ⚠️ {wte_chars}/800 chars):")
+            else:
+                st.info(f"📝 **What to Expect** ({wte_count} words | {wte_chars}/800 chars):")
         with c2:
             if st.button("🔄 Regenerate Description"):
                 keys = get_all_keys()
