@@ -512,7 +512,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     
     **CRITICAL ACCURACY RULES:**
     1. **NO HALLUCINATION:** If pickup info or duration is not in the text, return "To be confirmed".
-    2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-120 words**. Count your words.
+    2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-120 words** AND strictly **UNDER 800 characters**. Count both.
     3. **NO FULL STOP:** The 'what_to_expect' paragraph MUST NOT end with a full stop (period).
     
     **HIGHLIGHTS RULES (STRICT):**
@@ -548,7 +548,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
             "duration": "Duration",
             "main_attractions": "Tour Name",
             "highlights": ["Highlight 1 (10-12 words)", "Highlight 2 (10-12 words)", "Highlight 3", "Highlight 4"],
-            "what_to_expect": "Strictly 100-120 words. No final full stop",
+            "what_to_expect": "Strictly 100-120 words and max 800 chars. No final full stop",
             "selling_points": ["Tag 1", "Tag 2"]
         }},
         "klook_itinerary": {{
@@ -588,7 +588,7 @@ def regenerate_description_only(text, api_key, lang="English"):
     prompt = f"""
     Write a 'What to Expect' summary for this tour.
     **CRITICAL RULES:**
-    1. STRICTLY 100-120 words. Count carefully.
+    1. STRICTLY 100-120 words AND strictly UNDER 800 characters. Count carefully.
     2. Do NOT end with a full stop/period.
     3. Language: {lang}
     4. Text only. No JSON.
