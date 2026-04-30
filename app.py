@@ -528,7 +528,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
 **SETTINGS DATA (CRITICAL - READ CAREFULLY):**
     - 'group_type': If the tour is private, return 'Private'. If it is a shared/public tour, look at 'max_pax'. If max_pax is 20 or below, return 'Join-in (small group)'. If max_pax is 21 or above, return 'Join-in (big group)'.
     - 'min_pax': Look for explicit minimum booking requirements. If not explicitly stated, default to "1".
-    - 'max_pax': Look for explicit maximum capacity limits. If not found, return "Check with Merchant". DO NOT invent or default to any numbers.
+    - 'max_pax': Look for explicit maximum capacity limits. If not explicitly stated, return "20".
     
     **ITINERARY & TIMING:**
     - **Start Time:** If a range is given (e.g., "Pickup 7:00am - 8:00am"), extract the **START** time (e.g., "07:00"). Do NOT average them.
