@@ -779,10 +779,17 @@ def render_output(json_text, url_input=None):
     
     # --- NEW: STRICT GROUP TYPE ENFORCER ---
     current_group = info.get("group_type", "")
-    max_pax_val = str(info.get("max_pax", ""))
+    max_pax_val = str(info.get("max_pax", "")).strip()
     
-    # Only override if it's NOT a private tour, and max_pax is actually a number
-    if "Private" not in current_group and max_pax_val.isdigit():
+    # Only evaluate pax rules if it is NOT a private tour
+    if "Private" not in current_group:
+        
+        # Rule 1: If max_pax is missing, text, or not a valid number, default to 20
+        if not max_pax_val.isdigit():
+            max_pax_val = "20"
+            info["max_pax"] = "20" # Updates the UI display to show 20
+            
+        # Rule 2: 1-20 is small group, >20 is big group
         if int(max_pax_val) <= 20:
             info["group_type"] = "Join-in (small group)"
         else:
