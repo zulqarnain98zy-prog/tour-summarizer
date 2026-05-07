@@ -534,6 +534,11 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - **Start Time:** If a range is given (e.g., "Pickup 7:00am - 8:00am"), extract the **START** time (e.g., "07:00"). Do NOT average them.
     - **Format:** Use HH:MM format (24-hour clock).
     
+    **INCLUSIONS EXTRACTION (CRITICAL):**
+    - Do NOT just copy explicit "Included" lists. You MUST "read between the lines" and scan the entire text for provided services.
+    - If the text mentions "Languages" available, you MUST add "Tour guide ([List Languages])" to the included list.
+    - Add implicit features like "Hotel pickup", "Audio guide", or "Equipment" to the included list if mentioned anywhere in the text.
+    
     **PRICING EXTRACTION:**
     - Look for Adult, Child, and Infant prices. Extract as numbers.
     - Extract child age range if specified (e.g., "0-15", "4-12"). If not found, return "N/A".
