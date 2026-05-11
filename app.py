@@ -582,7 +582,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
             ],
             "end": {{ "time": "17:00", "location": "Drop off" }}
         }},
-        "policies": {{ "cancellation": "Policy", "merchant_contact": "+X-XXX-XXX-XXXX" }},
+        "policies": {{ "cancellation": "Policy", "merchant_contact": "Email: info@tour.com | Phone: +1 234 567" }},
         "inclusions": {{ "included": ["Item 1"], "excluded": ["Item 2"] }},
         "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": ["FAQ content"] }},
         "seo": {{ "keywords": ["Key 1"] }},
