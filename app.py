@@ -359,9 +359,23 @@ def extract_data_from_url(url):
 
         for script in soup(["script", "style", "noscript", "svg"]): 
             script.extract()
+            
+        # --- NEW: EXTRACT HIDDEN CONTACT LINKS ---
+        hidden_contacts = []
+        for a in soup.find_all('a', href=True):
+            href = a['href'].lower()
+            if href.startswith('mailto:'): hidden_contacts.append(f"Email: {href.replace('mailto:', '')}")
+            if href.startswith('tel:'): hidden_contacts.append(f"Phone: {href.replace('tel:', '')}")
+        # -----------------------------------------
+            
         text = soup.get_text(separator=' \n ')
         lines = (line.strip() for line in text.splitlines())
         clean_text = '\n'.join(line for line in lines if line)[:100000] 
+        
+        # --- INJECT CONTACTS FOR THE AI ---
+        if hidden_contacts:
+            clean_text += "\n\n--- MERCHANT CONTACTS FOUND IN CODE ---\n" + "\n".join(list(set(hidden_contacts)))
+        # ----------------------------------
         
         return {"text": clean_text, "images": found_images}, None
 
