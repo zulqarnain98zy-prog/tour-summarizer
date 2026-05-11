@@ -539,6 +539,10 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - If the text mentions "Languages" available, you MUST add "Tour guide ([List Languages])" to the included list.
     - Add implicit features like "Hotel pickup", "Audio guide", or "Equipment" to the included list if mentioned anywhere in the text.
     
+    **CONTACT EXTRACTION (CRITICAL):**
+    - You MUST scan the absolute bottom (footer) and top (header) of the text for phone numbers, WhatsApp numbers, or emails.
+    - Combine any found emails and phone numbers into the 'merchant_contact' field (e.g., "info@tour.com | +1 234 567 890").
+    
     **PRICING EXTRACTION:**
     - Look for Adult, Child, and Infant prices. Extract as numbers.
     - Extract child age range if specified (e.g., "0-15", "4-12"). If not found, return "N/A".
