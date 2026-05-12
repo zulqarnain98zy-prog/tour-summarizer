@@ -555,10 +555,11 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - 'min_pax': Look for explicit minimum booking requirements. If not explicitly stated, default to "1".
     - 'max_pax': Look for explicit maximum capacity limits. If not explicitly stated, return "20".
     
-    **ITINERARY & TIMING:**
-    - **Start Time:** If a range is given (e.g., "Pickup 7:00am - 8:00am"), extract the **START** time (e.g., "07:00"). Do NOT average them.
+    **ITINERARY & TIMING (CRITICAL):**
+    - **Start Time:** If a range is given (e.g., "Pickup 7:00am - 8:00am"), extract the **START** time (e.g., "07:00"). 
     - **Format:** Use HH:MM format (24-hour clock).
-    - **NARRATIVE ITINERARIES (CRITICAL):** If the itinerary is written as a story or paragraph without specific times (e.g., "First we visit X, then after lunch we go to Y"), you MUST still break it down and extract every location into the 'segments' array. Estimate chronological times or use "TBC". Do NOT leave the itinerary blank just because timestamps are missing.
+    - **NARRATIVE ITINERARIES:** If the itinerary is written as a story without times, YOU MUST STILL CREATE MULTIPLE SEGMENTS (at least 4 to 6). Extract every major location mentioned (e.g., Harbour Bridge, The Rocks, Bondi Beach, Watsons Bay) as its own separate segment in the array. 
+    - **No Lazy Summaries:** Do NOT group the tour into one generic segment like "City Tour". Fully populate the "name" and "details" for each location from the story. If no time is provided, set the "time" field to "TBC".
     
     **INCLUSIONS EXTRACTION (CRITICAL):**
     - Do NOT just copy explicit "Included" lists. You MUST "read between the lines" and scan the entire text for provided services.
