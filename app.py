@@ -360,13 +360,24 @@ def extract_data_from_url(url):
         for script in soup(["script", "style", "noscript", "svg"]): 
             script.extract()
             
-        # --- NEW: EXTRACT HIDDEN CONTACT LINKS ---
+        # --- NEW: EXTRACT HIDDEN CONTACT LINKS & SNEAKY REGEX ---
         hidden_contacts = []
+        
+        # 1. Catch standard hidden links
         for a in soup.find_all('a', href=True):
             href = a['href'].lower()
             if href.startswith('mailto:'): hidden_contacts.append(f"Email: {href.replace('mailto:', '')}")
             if href.startswith('tel:'): hidden_contacts.append(f"Phone: {href.replace('tel:', '')}")
-        # -----------------------------------------
+            
+        # 2. Raw HTML Regex (Catches emails hidden inside scripts/JSON before they get deleted!)
+        if hasattr(response, 'text'):
+            raw_emails = re.findall(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', response.text)
+            for e in raw_emails:
+                e = e.lower()
+                # Ignore image files and generic code junk that look like emails
+                if not any(ext in e for ext in ['.png', '.jpg', '.jpeg', '.webp', '.svg', 'sentry', 'w3.org', 'example']):
+                    hidden_contacts.append(f"Email: {e}")
+        # --------------------------------------------------------
             
         text = soup.get_text(separator=' \n ')
         lines = (line.strip() for line in text.splitlines())
