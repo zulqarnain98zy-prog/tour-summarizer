@@ -566,6 +566,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     
     **CONTACT EXTRACTION (CRITICAL):**
     - You MUST scan the absolute bottom (footer) and top (header) of the text for phone numbers, WhatsApp numbers, or emails.
+    - If NO explicit email is found, look at the provided URL domain (e.g., tourtravelandmore.com) and infer a standard contact email (e.g., "Email: info@tourtravelandmore.com").
     - Combine any found emails and phone numbers into the 'merchant_contact' field (e.g., "info@tour.com | +1 234 567 890").
     
     **PRICING EXTRACTION:**
