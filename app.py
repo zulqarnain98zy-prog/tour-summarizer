@@ -558,6 +558,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     **ITINERARY & TIMING:**
     - **Start Time:** If a range is given (e.g., "Pickup 7:00am - 8:00am"), extract the **START** time (e.g., "07:00"). Do NOT average them.
     - **Format:** Use HH:MM format (24-hour clock).
+    - **NARRATIVE ITINERARIES (CRITICAL):** If the itinerary is written as a story or paragraph without specific times (e.g., "First we visit X, then after lunch we go to Y"), you MUST still break it down and extract every location into the 'segments' array. Estimate chronological times or use "TBC". Do NOT leave the itinerary blank just because timestamps are missing.
     
     **INCLUSIONS EXTRACTION (CRITICAL):**
     - Do NOT just copy explicit "Included" lists. You MUST "read between the lines" and scan the entire text for provided services.
