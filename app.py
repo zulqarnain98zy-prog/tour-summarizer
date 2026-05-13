@@ -590,7 +590,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     **CONTACT EXTRACTION (CRITICAL):**
     - You MUST scan the absolute bottom (footer) and top (header) of the text for phone numbers, WhatsApp numbers, or emails.
     - If NO explicit email is found, look at the provided URL domain (e.g., tourtravelandmore.com) and infer a standard contact email (e.g., "Email: info@tourtravelandmore.com").
-    - Combine any found emails and phone numbers into the 'merchant_contact' field (e.g., "info@tour.com | +1 234 567 890").
+    - Combine any found contacts into the 'merchant_contact' field. You MUST list the Phone number FIRST, followed by the Email, separated by a pipe symbol (e.g., "Phone: +1 234 567 | Email: info@tour.com").
     
     **PRICING EXTRACTION (CRITICAL):**
     - Look closely for Adult, Child, and Infant prices. They often appear next to words like "from", "Options", or "Buy Tickets" (e.g., "from €49"). Extract just the numerical value.
@@ -875,7 +875,10 @@ def render_output(json_text, url_input=None):
         st.header("📋 Copy Dashboard")
         copy_box("📍 Location", info.get('city_country'))
         copy_box("🏷️ Name", info.get('main_attractions'))
-        copy_box("📞 Phone", pol.get('merchant_contact'))
+        
+        # Format contacts downwards
+        contact_text = str(pol.get('merchant_contact', '')).replace(' | ', '\n').replace('|', '\n')
+        copy_box("📞 Contact", contact_text)
         st.divider()
         if HAS_REPORTLAB:
             pdf_data = create_pdf(data)
@@ -976,7 +979,9 @@ def render_output(json_text, url_input=None):
 
     with tabs[3]:
         st.error(f"**Cancellation Policy:** {pol.get('cancellation', '-')}")
-        st.write(f"**📞 Merchant Contact:** {pol.get('merchant_contact', '-')}")
+        st.write("**📞 Merchant Contact:**")
+        for line in str(pol.get('merchant_contact', '-')).split('|'):
+            st.write(line.strip())
 
     with tabs[4]:
         c1, c2 = st.columns(2)
