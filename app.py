@@ -565,6 +565,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - Do NOT just copy explicit "Included" lists. You MUST "read between the lines" and scan the entire text for provided services.
     - If the text mentions "Languages" available, you MUST add "Tour guide ([List Languages])" to the included list.
     - Add implicit features like "Hotel pickup", "Audio guide", or "Equipment" to the included list if mentioned anywhere in the text.
+    - ANTI-FLUFF RULE: DO NOT add generic activities or redundant concepts to the inclusions list (e.g., NEVER add "Walking tour", "City exploration", "Sightseeing", or "Experience"). Only list concrete items, tangible services, tickets, or food.
     
     **CONTACT EXTRACTION (CRITICAL):**
     - You MUST scan the absolute bottom (footer) and top (header) of the text for phone numbers, WhatsApp numbers, or emails.
