@@ -807,6 +807,9 @@ def show_copy_dialog(data):
     st.code(clean(pol.get('cancellation')), language='text')
     st.caption("**Child Policy**")
     st.code(clean(res.get('child_policy')), language='text')
+    st.caption("**What to Bring**")
+    wtb_text = "\n".join([f"• {clean(x)}" for x in res.get('what_to_bring', [])])
+    st.code(wtb_text, language='text')
 
     st.divider()
     st.subheader("4. SEO & Contact")
@@ -988,6 +991,10 @@ def render_output(json_text, url_input=None):
         res = data.get("restrictions", {})
         st.write(f"**Child:** {res.get('child_policy')}")
         st.write(f"**Accessibility:** {res.get('accessibility')}")
+        
+        st.write("🎒 **What to Bring:**")
+        for item in res.get("what_to_bring", []): st.write(f"- {item}")
+        
         faq = res.get('faq')
         with st.expander("View FAQ", expanded=True):
             if isinstance(faq, list):
