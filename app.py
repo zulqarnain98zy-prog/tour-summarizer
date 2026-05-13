@@ -1000,11 +1000,25 @@ def render_output(json_text, url_input=None):
     with tabs[7]:
         st.header("💰 Price & Margin Calculator")
         st.subheader("🔎 Extracted from Website")
+        
+        # --- SAFE PRICE EXTRACTION ---
+        def safe_float(val, default=0.0):
+            try:
+                clean_val = str(val).replace('$', '').replace('€', '').replace('£', '').replace(',', '').strip()
+                return float(clean_val)
+            except (ValueError, TypeError):
+                return default
+
         cur = price_data.get('currency', 'USD')
-        p_adult = price_data.get('adult_price', 0.0)
-        p_child = price_data.get('child_price', 0.0)
-        p_infant = price_data.get('infant_price', 0.0)
+        p_adult_raw = price_data.get('adult_price', 0.0)
+        p_child_raw = price_data.get('child_price', 0.0)
+        p_infant_raw = price_data.get('infant_price', 0.0)
+        
+        p_adult = safe_float(p_adult_raw, 100.0) # Defaults to 100 if text found
+        p_child = safe_float(p_child_raw, 0.0)
+        p_infant = safe_float(p_infant_raw, 0.0)
         c_age = price_data.get('child_age', 'N/A')
+        # -----------------------------
         
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Adult Price", f"{cur} {p_adult}")
