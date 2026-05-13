@@ -377,16 +377,36 @@ def extract_data_from_url(url):
                 # Ignore image files and generic code junk that look like emails
                 if not any(ext in e for ext in ['.png', '.jpg', '.jpeg', '.webp', '.svg', 'sentry', 'w3.org', 'example']):
                     hidden_contacts.append(f"Email: {e}")
+        
         # --------------------------------------------------------
             
         text = soup.get_text(separator=' \n ')
         lines = (line.strip() for line in text.splitlines())
         clean_text = '\n'.join(line for line in lines if line)[:100000] 
+
+        # --- NEW: EXTRACT HIDDEN TOOLTIPS & AGE INFO ---
+        hidden_tooltips = []
+        # Scan common interactive elements for hidden labels
+        for el in soup.find_all(['span', 'i', 'a', 'div', 'button']):
+            for attr in ['title', 'aria-label', 'data-tooltip', 'data-content', 'data-original-title']:
+                if el.has_attr(attr) and len(el[attr].strip()) > 0:
+                    # Filter out useless junk like "Close" or "Menu"
+                    val = el[attr].strip()
+                    if len(val) > 3 and not any(x in val.lower() for x in ['close', 'menu', 'search', 'button']):
+                        hidden_tooltips.append(f"Hidden Tooltip: {val}")
+        # -----------------------------------------------
         
-        # --- INJECT CONTACTS FOR THE AI ---
+        text = soup.get_text(separator=' \n ')
+        lines = (line.strip() for line in text.splitlines())
+        clean_text = '\n'.join(line for line in lines if line)[:100000] 
+        
+        # --- INJECT CONTACTS & TOOLTIPS FOR THE AI ---
         if hidden_contacts:
             clean_text += "\n\n--- MERCHANT CONTACTS FOUND IN CODE ---\n" + "\n".join(list(set(hidden_contacts)))
-        # ----------------------------------
+            
+        if hidden_tooltips:
+            clean_text += "\n\n--- HIDDEN TOOLTIPS FOUND IN CODE ---\n" + "\n".join(list(set(hidden_tooltips)))
+        # ---------------------------------------------
         
         return {"text": clean_text, "images": found_images}, None
 
