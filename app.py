@@ -592,11 +592,11 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - If NO explicit email is found, look at the provided URL domain (e.g., tourtravelandmore.com) and infer a standard contact email (e.g., "Email: info@tourtravelandmore.com").
     - Combine any found emails and phone numbers into the 'merchant_contact' field (e.g., "info@tour.com | +1 234 567 890").
     
-    **PRICING EXTRACTION:**
-    - Look for Adult, Child, and Infant prices. Extract as numbers.
+    **PRICING EXTRACTION (CRITICAL):**
+    - Look closely for Adult, Child, and Infant prices. They often appear next to words like "from", "Options", or "Buy Tickets" (e.g., "from €49"). Extract just the numerical value.
     - Extract child and infant age ranges if specified (e.g., "0-15", "4-12", "12+ Years"). 
     - CRITICAL: You MUST scan the "HIDDEN TOOLTIPS" section at the bottom of the text to find hidden age restrictions associated with tickets.
-    - Detect Currency Code.
+    - Detect Currency Code from the text (e.g., EUR, USD, AUD, or symbols like €, $, £).
     
     **REQUIRED JSON STRUCTURE:**
     {{
