@@ -594,7 +594,8 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     
     **PRICING EXTRACTION:**
     - Look for Adult, Child, and Infant prices. Extract as numbers.
-    - Extract child age range if specified (e.g., "0-15", "4-12"). If not found, return "N/A".
+    - Extract child and infant age ranges if specified (e.g., "0-15", "4-12", "12+ Years"). 
+    - CRITICAL: You MUST scan the "HIDDEN TOOLTIPS" section at the bottom of the text to find hidden age restrictions associated with tickets.
     - Detect Currency Code.
     
     **REQUIRED JSON STRUCTURE:**
