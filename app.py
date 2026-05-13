@@ -597,6 +597,9 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - Extract child and infant age ranges if specified (e.g., "0-15", "4-12", "12+ Years"). 
     - CRITICAL: You MUST scan the "HIDDEN TOOLTIPS" section at the bottom of the text to find hidden age restrictions associated with tickets.
     - Detect Currency Code from the text (e.g., EUR, USD, AUD, or symbols like €, $, £).
+
+    **RESTRICTIONS & REQUIREMENTS:**
+    - Extract any items the user is required or recommended to bring (e.g., ID, comfortable shoes, umbrella) into the 'what_to_bring' array within the 'restrictions' object.
     
     **REQUIRED JSON STRUCTURE:**
     {{
@@ -620,7 +623,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
         }},
         "policies": {{ "cancellation": "Policy", "merchant_contact": "Email: info@tour.com | Phone: +1 234 567" }},
         "inclusions": {{ "included": ["Item 1"], "excluded": ["Item 2"] }},
-        "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "faq": ["FAQ content"] }},
+        "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "what_to_bring": ["Item 1", "Item 2"], "faq": ["FAQ content"] }},
         "seo": {{ "keywords": ["Key 1"] }},
         "pricing": {{ 
             "details": "Original text string",
