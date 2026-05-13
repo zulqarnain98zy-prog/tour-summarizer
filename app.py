@@ -816,7 +816,10 @@ def show_copy_dialog(data):
     kw_list = seo.get("keywords", [])
     kw_text = ", ".join(kw_list) if isinstance(kw_list, list) else str(kw_list)
     st.code(clean(kw_text), language='text')
-    st.code(clean(pol.get('merchant_contact')), language='text')
+    
+    # Format contacts downwards for copy-paste
+    contact_clean = clean(pol.get('merchant_contact')).replace(' | ', '\n').replace('|', '\n')
+    st.code(contact_clean, language='text')
 
 # --- UI RENDERER ---
 def render_output(json_text, url_input=None):
