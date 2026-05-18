@@ -834,12 +834,18 @@ def render_output(json_text, url_input=None):
     if clean_text.startswith("```json"): clean_text = clean_text[7:]
     if clean_text.endswith("```"): clean_text = clean_text[:-3]
     
-    try:
+   try:
         data = json.loads(clean_text)
+        
+        # --- NEW: TYPE CHECKER ENFORCER ---
+        if not isinstance(data, dict):
+            raise ValueError("The AI did not return a valid JSON dictionary.")
+        # ----------------------------------
+            
         if "basic_info" in data and "main_attractions" in data["basic_info"]:
             st.session_state['product_context'] = data["basic_info"]["main_attractions"]
-    except:
-        st.warning("⚠️ Formatting Issue. See 'Raw Response' below.")
+    except Exception as e:
+        st.warning(f"⚠️ Formatting Issue: {e} See 'Raw Response' below to see what the AI said.")
         st.code(json_text)
         return
         
