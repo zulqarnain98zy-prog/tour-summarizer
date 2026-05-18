@@ -834,7 +834,7 @@ def render_output(json_text, url_input=None):
     if clean_text.startswith("```json"): clean_text = clean_text[7:]
     if clean_text.endswith("```"): clean_text = clean_text[:-3]
     
-   try:
+    try:
         data = json.loads(clean_text)
         
         # --- NEW: TYPE CHECKER ENFORCER ---
