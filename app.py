@@ -837,7 +837,12 @@ def render_output(json_text, url_input=None):
     try:
         data = json.loads(clean_text)
         
-        # --- NEW: TYPE CHECKER ENFORCER ---
+        # --- NEW: AUTO-UNWRAPPER FOR AI MISTAKES ---
+        # If the AI accidentally wraps the JSON in a list [ ], grab the first item
+        if isinstance(data, list) and len(data) > 0:
+            data = data[0]
+            
+        # --- TYPE CHECKER ENFORCER ---
         if not isinstance(data, dict):
             raise ValueError("The AI did not return a valid JSON dictionary.")
         # ----------------------------------
