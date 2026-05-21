@@ -1130,10 +1130,10 @@ def smart_rotation_wrapper(text, keys, lang="English"):
         for key in shuffled_keys:
             result = call_gemini_json_summary(text, key, lang)
             
-            # If it's a quota error, log it and instantly try the next key
+            # If it's a quota error, trigger a proper cool down
             if result == "429_LIMIT" or "429" in str(result):
-                last_error = "429 Quota Exceeded on this key."
-                time.sleep(0.5)
+                last_error = "429 Quota Exceeded. API is cooling down..."
+                time.sleep(4) # This 4-second pause is mandatory to bypass spam filters!
                 continue
             
             # If it is another AI error (like 404), log it and try next key
