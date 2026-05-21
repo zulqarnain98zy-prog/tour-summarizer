@@ -582,9 +582,9 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - **No Lazy Summaries:** Do NOT group the tour into one generic segment like "City Tour". Fully populate the "name" and "details" for each location from the story. If no time is provided, set the "time" field to "TBC".
     
     **INCLUSIONS EXTRACTION (CRITICAL):**
-    - Do NOT just copy explicit "Included" lists. You MUST "read between the lines" and scan the entire text for provided services.
+    - FIRST, you MUST extract ALL explicit items listed under the merchant's "Included" and "Excluded" sections. Do not leave out any tangible items (e.g., specific food, entry fees, transfers, drinks).
+    - NEXT, "read between the lines" and scan the rest of the text to add any missing implicit features (like "Audio guide" or "Hotel pickup") if they aren't already in the list.
     - If the text mentions "Languages" available, you MUST add "Tour guide ([List Languages])" to the included list.
-    - Add implicit features like "Hotel pickup", "Audio guide", or "Equipment" to the included list if mentioned anywhere in the text.
     - ANTI-FLUFF RULE: DO NOT add generic activities or redundant concepts to the inclusions list (e.g., NEVER add "Walking tour", "City exploration", "Sightseeing", or "Experience"). Only list concrete items, tangible services, tickets, or food.
     
     **CONTACT EXTRACTION (CRITICAL):**
