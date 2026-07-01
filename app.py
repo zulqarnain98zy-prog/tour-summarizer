@@ -601,9 +601,35 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     **RESTRICTIONS & REQUIREMENTS:**
     - Extract any items the user is required or recommended to bring (e.g., ID, comfortable shoes, umbrella) into the 'what_to_bring' array within the 'restrictions' object.
     
+    **ACTIVITY TITLE GENERATION (STRICT RULES):**
+    You MUST generate a highly formatted 'activity_title' based on the following Klook Style Guide.
+    
+    1. GENERAL RULES (Applies to all titles):
+       - STRICT LIMIT: Maximum 68 characters (including spaces). If over 68, use "&" instead of "and".
+       - NO PROMOS: Do not include words like "exclusive", "promotion", or "discount".
+       - NO DECORATIVE CHARACTERS: Do not use ~ ! * $ ? _ { } # < > * ; ^ ¬ ¦ | "
+       - CAPITALIZATION: Capitalize the first letter of each word (Title Case). Do NOT capitalize prepositions or conjunctions (from, with, and, at, in, on, by).
+    
+    2. DETERMINE THE PRODUCT CATEGORY & FORMAT:
+       - IF IT IS AN ATTRACTION OR SHOW:
+         - Format: <Official Attraction Name> Ticket (e.g., "S.E.A. Aquarium Ticket")
+         - If Hop-on Hop-off: <City> Hop-on Hop-off Bus by <Operator> (e.g., "New Orleans Hop-On Hop-Off Bus by City Sightseeing")
+       
+       - IF IT IS A TOUR OR SIGHTSEEING:
+         - Suffix Rule: If a guide is included, end with "Tour". If no guide, end with "Trip".
+         - If Half/One Day: <Tour Name> Half-Day Tour (e.g., "Bohol Countryside Half-Day Tour")
+         - If outside the city: <Locations> One-Day Tour from <City> (e.g., "Oxford & Cambridge One-Day Tour from London")
+         - If Multiple Days: <Duration> <Tour Name> Tour (e.g., "3D2N Cool Dingo Fraser Island Tour")
+         - If Private: You MUST include the word "Private" (e.g., "Saigon Private Half-Day Tour")
+       
+       - IF IT IS AN ACTIVITY OR EXPERIENCE (Class, Spa, Trek, etc.):
+         - Format: <Activity Name> <Class/Experience/Trek/etc.> (e.g., "Redang Island Snorkeling Experience")
+         - If it's a pass: <Name> Day Pass (e.g., "Mountain Biking Day Pass")
+
     **REQUIRED JSON STRUCTURE:**
     {{
         "basic_info": {{
+            "activity_title": "The exact title generated using the strict rules above",
             "city_country": "City, Country",
             "group_type": "Private/Join-in (small group)/Join-in (big group)",
             "min_pax": "1",
@@ -613,6 +639,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
             "highlights": ["Highlight 1 (10-12 words)", "Highlight 2 (10-12 words)", "Highlight 3", "Highlight 4"],
             "what_to_expect": "Strictly 100-120 words and max 800 chars. No final full stop",
             "selling_points": ["Tag 1", "Tag 2"]
+        }},
         }},
         "klook_itinerary": {{
             "start": {{ "time": "09:00", "location": "Meeting Point" }},
