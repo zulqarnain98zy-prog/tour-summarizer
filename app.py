@@ -930,6 +930,7 @@ def render_output(json_text, url_input=None):
     tabs = st.tabs(tab_names)
 
     with tabs[0]:
+        st.subheader(f"🎟️ {info.get('activity_title', 'Activity Title (Not Generated)')}") # Displays the title prominently
         st.write(f"**📍 Location:** {info.get('city_country')}")
         st.write(f"**⏳ Duration:** {info.get('duration')}")
         st.write(f"**👥 Group:** {info.get('group_type')}")
