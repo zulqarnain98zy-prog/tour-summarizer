@@ -607,7 +607,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     1. GENERAL RULES (Applies to all titles):
        - STRICT LIMIT: Maximum 68 characters (including spaces). If over 68, use "&" instead of "and".
        - NO PROMOS: Do not include words like "exclusive", "promotion", or "discount".
-       - NO DECORATIVE CHARACTERS: Do not use ~ ! * $ ? _ { } # < > * ; ^ ¬ ¦ | "
+       - NO DECORATIVE CHARACTERS: Do not use ~ ! * $ ? _ {{ }} # < > * ; ^ ¬ ¦ | "
        - CAPITALIZATION: Capitalize the first letter of each word (Title Case). Do NOT capitalize prepositions or conjunctions (from, with, and, at, in, on, by).
     
     2. DETERMINE THE PRODUCT CATEGORY & FORMAT:
