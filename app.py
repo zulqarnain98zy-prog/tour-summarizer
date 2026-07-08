@@ -555,7 +555,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - Remove accents: 'ñ' -> 'n', 'é' -> 'e'.
     
     **CRITICAL ACCURACY RULES:**
-    1. **NO HALLUCINATION:** If pickup info or duration is not in the text, return "To be confirmed".
+    1. **NO HALLUCINATION:** If pickup info or duration is not in the text, return "To be confirmed". Do NOT use "To be confirmed" for array lists like inclusions/exclusions (use an empty array [] or ["None mentioned"] instead).
     2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-120 words** AND strictly **UNDER 800 characters**. Count both.
     3. **NO FULL STOP:** The 'what_to_expect' paragraph MUST NOT end with a full stop (period).
     4. **POINT OF VIEW (CRITICAL):** NEVER use first-person pronouns ("we", "us", "our") when referring to the tour provider. Always replace them with "The operator" (e.g., change "We offer pick-ups" to "The operator offers pick-ups").
@@ -583,10 +583,11 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - **No Lazy Summaries:** Do NOT group the tour into one generic segment like "City Tour". Fully populate the "name" and "details" for each location from the story. If no time is provided, set the "time" field to "TBC".
     
     **INCLUSIONS EXTRACTION (CRITICAL):**
-    - FIRST, you MUST extract ALL explicit items listed under the merchant's "Included" and "Excluded" sections. Do not leave out any tangible items (e.g., specific food, entry fees, transfers, drinks).
+    - FIRST, you MUST scan the entire text for sections titled "Inclusions", "Included", "What's Included", "Includes", "Package Details", or similar lists.
+    - You MUST extract ALL explicit items listed in these sections verbatim (e.g., "1 ticket for Kinderdijk", "Free parking", "Fashion Passport"). Do not skip ANY tangible items, tickets, discounts, or services.
     - NEXT, "read between the lines" and scan the rest of the text to add any missing implicit features (like "Audio guide" or "Hotel pickup") if they aren't already in the list.
     - If the text mentions "Languages" available, you MUST add "Tour guide ([List Languages])" to the included list.
-    - ANTI-FLUFF RULE: DO NOT add generic activities or redundant concepts to the inclusions list (e.g., NEVER add "Walking tour", "City exploration", "Sightseeing", or "Experience"). Only list concrete items, tangible services, tickets, or food.
+    - ANTI-FLUFF RULE: DO NOT add generic activities or redundant concepts (e.g., "Sightseeing", "Experience"). Only list concrete items, tangible services, tickets, or food.
     
     **CONTACT EXTRACTION (CRITICAL):**
     - You MUST scan the absolute bottom (footer) and top (header) of the text for phone numbers, WhatsApp numbers, or emails.
@@ -669,7 +670,6 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
         return response.text
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
-
 
 # --- REGENERATE DESCRIPTION ONLY ---
 def regenerate_description_only(text, api_key, lang="English"):
