@@ -559,6 +559,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-120 words** AND strictly **UNDER 800 characters**. Count both.
     3. **NO FULL STOP:** The 'what_to_expect' paragraph MUST NOT end with a full stop (period).
     4. **POINT OF VIEW (CRITICAL):** NEVER use first-person pronouns ("we", "us", "our") when referring to the tour provider. Always replace them with "The operator" (e.g., change "We offer pick-ups" to "The operator offers pick-ups").
+    5. **CONTENT COMPLETENESS (CRITICAL):** You MUST extract and mention ALL key locations, cities, landmarks, and attractions included in the package. If a package includes multiple destinations (e.g., visiting "Kinderdijk" AND "Designer Outlet"), you MUST explicitly mention ALL of them in the 'what_to_expect' and 'highlights'. Do NOT over-summarize and leave out secondary locations.
     
     **HIGHLIGHTS RULES (STRICT):**
     - **LENGTH:** Each bullet point must be **STRICTLY 10-12 words long**.
@@ -570,7 +571,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - Select EXACTLY 3-5 tags from the list below. Do NOT invent new ones.
     - List: {SELLING_POINTS_LIST}
     
-**SETTINGS DATA (CRITICAL - READ CAREFULLY):**
+    **SETTINGS DATA (CRITICAL - READ CAREFULLY):**
     - 'group_type': If the tour is private, return 'Private'. If it is a shared/public tour, look at 'max_pax'. If max_pax is 20 or below, return 'Join-in (small group)'. If max_pax is 21 or above, return 'Join-in (big group)'.
     - 'min_pax': Look for explicit minimum booking requirements. If not explicitly stated, default to "1".
     - 'max_pax': Look for explicit maximum capacity limits. If not explicitly stated, return "20".
@@ -640,7 +641,6 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
             "what_to_expect": "Strictly 100-120 words and max 800 chars. No final full stop",
             "selling_points": ["Tag 1", "Tag 2"]
         }},
-        }},
         "klook_itinerary": {{
             "start": {{ "time": "09:00", "location": "Meeting Point" }},
             "segments": [
@@ -670,6 +670,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
 
+
 # --- REGENERATE DESCRIPTION ONLY ---
 def regenerate_description_only(text, api_key, lang="English"):
     model_name = get_working_model_name(api_key)
@@ -684,6 +685,7 @@ def regenerate_description_only(text, api_key, lang="English"):
     3. Language: {lang}
     4. Text only. No JSON.
     5. POINT OF VIEW: NEVER use "we", "us", or "our". Always replace them with "The operator".
+    6. CONTENT COMPLETENESS: You MUST explicitly mention ALL key destinations, cities, and specific landmarks covered in the tour. Do not leave out secondary locations to save space.
     
     **INPUT TEXT:**
     {sanitize_text(text)}
