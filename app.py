@@ -21,6 +21,7 @@ from urllib3.poolmanager import PoolManager
 import streamlit.components.v1 as components # <--- ADD THIS IMPORT
 
 # --- REACT FRONTEND TEMPLATE (INJECTED) ---
+# --- REACT FRONTEND TEMPLATE (INJECTED) ---
 REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -30,22 +31,23 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://unpkg.com/lucide-react@0.292.0/dist/umd/lucide-react.js"></script>
+  <!-- FIX: Load Lucide Icons safely -->
+  <script src="https://unpkg.com/lucide@latest"></script>
   <style>body { margin: 0; padding: 0; background-color: #f9fafb; }</style>
 </head>
 <body>
+  <!-- SAFE INJECTION: Hidden DOM element holds JSON to prevent parsing crashes -->
+  <script id="injected-data" type="application/json">__INJECT_JSON_HERE__</script>
   <div id="root"></div>
   <script type="text/babel">
-    const { useState } = React;
-    const {
-      ChevronRight, Star, MapPin, Heart, Share2, Calendar, Minus, Plus,
-      ChevronUp, ShieldCheck, Leaf, Clock, Flag, Image: ImageIcon,
-      ChevronDown, Code2, AlertTriangle, CheckCircle2, X
-    } = lucide;
-
-    // Streamlit will inject the live JSON payload here!
-    const sampleActivities = __INJECT_JSON_HERE__;
+    const { useState, useEffect } = React;
     
+    // FIX: Fallback manual icons if lucideReact fails to load via CDN
+    const Icon = ({ name, ...props }) => {
+      const IconComp = window.lucide && window.lucide[name] ? window.lucide[name] : () => <span {...props}>•</span>;
+      return <IconComp {...props} />;
+    };
+
     const fallbackData = {
         basic_info: {
           activity_title: "Generated Activity", city_country: "Location", group_type: "Join-in",
@@ -84,7 +86,7 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
               className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 text-gray-500 hover:bg-gray-50 disabled:opacity-40"
               disabled={value <= min}
             >
-              <Minus size={14} />
+              -
             </button>
             <span className="w-4 text-center text-sm text-gray-900">{value}</span>
             <button
@@ -92,7 +94,7 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
               onClick={() => onChange(value + 1)}
               className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 text-gray-500 hover:bg-gray-50"
             >
-              <Plus size={14} />
+              +
             </button>
           </div>
         </div>
@@ -107,38 +109,34 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
       const [childQty, setChildQty] = useState(0);
 
       const images = galleryImages(seed);
-      const unitPrice = Number(pricing.adult_price || 0);
-      const total = unitPrice * adultQty + Number(pricing.child_price || 0) * childQty;
+      const unitPrice = Number(pricing?.adult_price || 0);
+      const total = unitPrice * adultQty + Number(pricing?.child_price || 0) * childQty;
 
       return (
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-6 font-sans text-gray-900">
           <nav className="flex flex-wrap items-center gap-1 text-xs text-gray-500 mb-3">
-            <span className="hover:underline cursor-pointer">Home</span> <ChevronRight size={12} />
-            <span className="hover:underline cursor-pointer">{basic_info.city_country}</span> <ChevronRight size={12} />
-            <span className="hover:underline cursor-pointer">Things to do</span> <ChevronRight size={12} />
-            <span className="text-gray-400 truncate max-w-[220px]">{basic_info.activity_title}</span>
+            <span className="hover:underline cursor-pointer">Home</span> <span className="mx-1">›</span>
+            <span className="hover:underline cursor-pointer">{basic_info?.city_country}</span> <span className="mx-1">›</span>
+            <span className="hover:underline cursor-pointer">Things to do</span> <span className="mx-1">›</span>
+            <span className="text-gray-400 truncate max-w-[220px]">{basic_info?.activity_title}</span>
           </nav>
-          <h1 className="text-2xl sm:text-[28px] font-bold text-gray-900 leading-tight">{basic_info.activity_title}</h1>
+          <h1 className="text-2xl sm:text-[28px] font-bold text-gray-900 leading-tight">{basic_info?.activity_title}</h1>
           <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
-            <span className="flex items-center gap-1 bg-violet-50 text-violet-600 font-medium px-2 py-1 rounded"><ShieldCheck size={13} /> Klook's choice</span>
-            <span className="flex items-center gap-1 text-emerald-600 font-medium px-2 py-1"><Leaf size={13} /> Certified Sustainable Partner</span>
+            <span className="flex items-center gap-1 bg-violet-50 text-violet-600 font-medium px-2 py-1 rounded">🛡️ Klook's choice</span>
+            <span className="flex items-center gap-1 text-emerald-600 font-medium px-2 py-1">🌿 Certified Sustainable Partner</span>
             <span className="text-gray-500 px-2 py-1 border-l border-gray-200">English</span>
-            <span className="text-gray-500 px-2 py-1 border-l border-gray-200">{basic_info.group_type}</span>
+            <span className="text-gray-500 px-2 py-1 border-l border-gray-200">{basic_info?.group_type}</span>
           </div>
           <div className="flex flex-wrap gap-2 mt-3">
             <span className="bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-md">Meet with guide</span>
-            <span className="bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-md">{basic_info.duration} Duration</span>
+            <span className="bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-md">{basic_info?.duration} Duration</span>
           </div>
           <div className="flex flex-wrap items-center gap-3 mt-3 text-sm">
-            <span className="flex items-center gap-1 font-semibold text-gray-900"><Star size={15} className="fill-orange-500 text-orange-500" /> —</span>
+            <span className="flex items-center gap-1 font-semibold text-gray-900"><span className="text-orange-500">★</span> —</span>
             <span className="text-gray-400">·</span>
             <span className="underline text-gray-700 cursor-pointer">Reviews pending</span>
             <span className="text-gray-400">·</span>
-            <span className="flex items-center gap-1 text-gray-600"><MapPin size={14} /> Departing from {basic_info.city_country}</span>
-            <div className="ml-auto flex items-center gap-4 text-gray-500">
-              <button className="flex items-center gap-1 hover:text-gray-800"><Share2 size={15} /></button>
-              <button className="flex items-center gap-1 hover:text-gray-800"><Heart size={15} /> Save to wishlist</button>
-            </div>
+            <span className="flex items-center gap-1 text-gray-600">📍 Departing from {basic_info?.city_country}</span>
           </div>
           <div className="grid grid-cols-3 grid-rows-2 gap-1 rounded-xl overflow-hidden mt-4 h-[260px] sm:h-[380px]">
             <div className="row-span-2 col-span-1"><img src={images[0]} alt="Main" className="w-full h-full object-cover" /></div>
