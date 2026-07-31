@@ -45,6 +45,17 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
 
     // Streamlit will inject the live JSON payload here!
     const sampleActivities = __INJECT_JSON_HERE__;
+    
+    const fallbackData = {
+        basic_info: {
+          activity_title: "Generated Activity", city_country: "Location", group_type: "Join-in",
+          min_pax: "1", max_pax: "20", duration: "TBC", main_attractions: "",
+          highlights: [], what_to_expect: "", selling_points: []
+        },
+        klook_itinerary: { start: {}, segments: [], end: {} },
+        policies: {}, inclusions: { included: [], excluded: [] },
+        restrictions: {}, seo: {}, pricing: {}, analysis: {}
+      };
 
     const galleryImages = (seedPrefix) => [
       `https://picsum.photos/seed/${seedPrefix}-main/900/700`,
