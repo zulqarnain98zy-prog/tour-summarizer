@@ -1520,18 +1520,15 @@ def render_output(json_text, url_input=None):
                 # Wrap payload in an array as the React code expects it
                 payload_array = [extension_payload]
                 
-                # Use strict, safe JSON encoding to prevent JavaScript parsing errors
-                safe_json_str = json.dumps(payload_array, ensure_ascii=False)
-                
-                # Escape backslashes and quotes to ensure safe injection into the JS string literal
-                safe_json_str = safe_json_str.replace('\\', '\\\\').replace('`', '\\`')
+                # SAFE INJECTION: Convert to JSON string, then escape < to prevent script breaking
+                safe_json_str = json.dumps(payload_array)
+                safe_json_str = safe_json_str.replace('<', '\\u003c')
                 
                 # Inject JSON into the template
                 final_html = REACT_FRONTEND_TEMPLATE.replace("__INJECT_JSON_HERE__", safe_json_str)
                 
                 # Render the HTML in an iframe (Height 850px gives a great view)
                 components.html(final_html, height=850, scrolling=True)
-
 
 # --- SMART ROTATION (FIXED ERROR EXPOSURE) ---
 def smart_rotation_wrapper(text, keys, lang="English"):
