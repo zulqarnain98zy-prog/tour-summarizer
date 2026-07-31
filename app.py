@@ -277,33 +277,32 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
       );
     }
 
-    const defaultActivity = sampleActivities[0];
-    function normalizeActivity(input) {
-      const safe = input && typeof input === "object" ? input : {};
-      const b = safe.basic_info || {};
-      const it = safe.klook_itinerary || {};
-      return {
-        basic_info: {
-          ...defaultActivity.basic_info, ...b,
-          highlights: Array.isArray(b.highlights) ? b.highlights : defaultActivity.basic_info.highlights,
-          selling_points: Array.isArray(b.selling_points) ? b.selling_points : defaultActivity.basic_info.selling_points,
-        },
-        klook_itinerary: {
-          start: { ...defaultActivity.klook_itinerary.start, ...(it.start || {}) },
-          segments: Array.isArray(it.segments) && it.segments.length > 0 ? it.segments : defaultActivity.klook_itinerary.segments,
-          end: { ...defaultActivity.klook_itinerary.end, ...(it.end || {}) },
-        },
-        policies: { ...defaultActivity.policies, ...(safe.policies || {}) },
-        inclusions: {
-          included: Array.isArray(safe.inclusions?.included) ? safe.inclusions.included : defaultActivity.inclusions.included,
-          excluded: Array.isArray(safe.inclusions?.excluded) ? safe.inclusions.excluded : defaultActivity.inclusions.excluded,
-        },
-        restrictions: { ...defaultActivity.restrictions, ...(safe.restrictions || {}) },
-        seo: { ...defaultActivity.seo, ...(safe.seo || {}) },
-        pricing: { ...defaultActivity.pricing, ...(safe.pricing || {}) },
-        analysis: { ...defaultActivity.analysis, ...(safe.analysis || {}) },
-      };
-    }
+          function normalizeActivity(input) {
+        const safe = input && typeof input === "object" ? input : {};
+        const b = safe.basic_info || {};
+        const it = safe.klook_itinerary || {};
+        return {
+          basic_info: {
+            ...fallbackData.basic_info, ...b,
+            highlights: Array.isArray(b.highlights) ? b.highlights : fallbackData.basic_info.highlights,
+            selling_points: Array.isArray(b.selling_points) ? b.selling_points : fallbackData.basic_info.selling_points,
+          },
+          klook_itinerary: {
+            start: { ...fallbackData.klook_itinerary.start, ...(it.start || {}) },
+            segments: Array.isArray(it.segments) && it.segments.length > 0 ? it.segments : fallbackData.klook_itinerary.segments,
+            end: { ...fallbackData.klook_itinerary.end, ...(it.end || {}) },
+          },
+          policies: { ...fallbackData.policies, ...(safe.policies || {}) },
+          inclusions: {
+            included: Array.isArray(safe.inclusions?.included) ? safe.inclusions.included : fallbackData.inclusions.included,
+            excluded: Array.isArray(safe.inclusions?.excluded) ? safe.inclusions.excluded : fallbackData.inclusions.excluded,
+          },
+          restrictions: { ...fallbackData.restrictions, ...(safe.restrictions || {}) },
+          seo: { ...fallbackData.seo, ...(safe.seo || {}) },
+          pricing: { ...fallbackData.pricing, ...(safe.pricing || {}) },
+          analysis: { ...fallbackData.analysis, ...(safe.analysis || {}) },
+        };
+      }
 
     class RenderErrorBoundary extends React.Component {
       constructor(props) { super(props); this.state = { hasError: false, message: "" }; }
