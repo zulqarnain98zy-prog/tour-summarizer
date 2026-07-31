@@ -343,12 +343,16 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
       );
     }
 
-    function App() {
-      const [jsonText, setJsonText] = useState(JSON.stringify(sampleActivities, null, 2));
-      const [activities, setActivities] = useState(sampleActivities);
-      const [error, setError] = useState("");
-      const [success, setSuccess] = useState("");
-      const [renderKey, setRenderKey] = useState(0);
+      function App() {
+        // FIX: Safely normalize the injected data immediately on load!
+        const initialActivities = Array.isArray(sampleActivities) ? sampleActivities : [sampleActivities];
+        const normalizedInitial = initialActivities.map(normalizeActivity);
+
+        const [jsonText, setJsonText] = useState(JSON.stringify(normalizedInitial, null, 2));
+        const [activities, setActivities] = useState(normalizedInitial);
+        const [error, setError] = useState("");
+        const [success, setSuccess] = useState("");
+        const [renderKey, setRenderKey] = useState(0);
 
       const handleRender = () => {
         if (!jsonText.trim()) return;
