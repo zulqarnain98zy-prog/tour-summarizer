@@ -21,7 +21,7 @@ from urllib3.poolmanager import PoolManager
 import streamlit.components.v1 as components # <--- ADD THIS IMPORT
 
 # --- REACT FRONTEND TEMPLATE (INJECTED) ---
-# --- REACT FRONTEND TEMPLATE (INJECTED) ---
+# FIX: Removed the 'f' prefix so Python doesn't try to parse JavaScript braces
 REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -145,7 +145,7 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
             <img src={images[3]} alt="" className="w-full h-full object-cover" />
             <div className="relative">
               <img src={images[4]} alt="" className="w-full h-full object-cover" />
-              <button className="absolute bottom-2 right-2 bg-white/95 text-gray-800 text-xs font-medium px-3 py-1.5 rounded-md shadow flex items-center gap-1"><ImageIcon size={13} /> Gallery</button>
+              <button className="absolute bottom-2 right-2 bg-white/95 text-gray-800 text-xs font-medium px-3 py-1.5 rounded-md shadow flex items-center gap-1"><Icon name="Image" size={13} /> Gallery</button>
             </div>
           </div>
           <div className="flex flex-col lg:flex-row gap-6 mt-5">
@@ -158,7 +158,7 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
                     ))}
                   </ul>
                   <button onClick={() => setSeeMore((s) => !s)} className="flex items-center gap-1 text-sm font-medium text-gray-900 underline mt-3">
-                    {seeMore ? "See less" : "See more"} {seeMore ? <ChevronUp size={14} /> : <ChevronRight size={14} />}
+                    {seeMore ? "See less" : "See more"} {seeMore ? <Icon name="ChevronUp" size={14} /> : <Icon name="ChevronRight" size={14} />}
                   </button>
                 </div>
                 <div className="text-3xl hidden sm:block">👍</div>
@@ -171,7 +171,7 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
                 <div className="border border-gray-200 rounded-xl p-5 bg-white shadow-sm">
                   <div className="flex items-center justify-between"><h3 className="font-semibold text-gray-900">Select options</h3><button className="text-sm text-orange-600 font-medium">Clear all</button></div>
                   <p className="text-xs text-gray-500 mt-1">Please select a participation date</p>
-                  <button className="mt-3 flex items-center gap-2 border border-orange-300 text-orange-600 text-sm font-medium px-4 py-2 rounded-lg"><Calendar size={15} /> Check availability</button>
+                  <button className="mt-3 flex items-center gap-2 border border-orange-300 text-orange-600 text-sm font-medium px-4 py-2 rounded-lg"><Icon name="Calendar" size={15} /> Check availability</button>
                   <p className="text-sm font-medium text-gray-900 mt-5 mb-2">Package type</p>
                   <div className="flex flex-wrap gap-3">
                     {["standard", "premium"].map((type) => (
@@ -184,11 +184,11 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
                   <p className="text-sm font-medium text-gray-900 mt-6 mb-2">Quantity</p>
                   <div className="space-y-3">
                     <QuantityRow label="Adult" sublabel="Minimum requirement" value={adultQty} onChange={setAdultQty} min={Number(basic_info.min_pax) || 1} />
-                    <QuantityRow label="Child" sublabel={`Age ${pricing.child_age}`} value={childQty} onChange={setChildQty} />
+                    <QuantityRow label="Child" sublabel={`Age ${pricing?.child_age}`} value={childQty} onChange={setChildQty} />
                   </div>
                   <div className="flex items-center justify-between mt-6">
                     <div>
-                      <p className="text-lg font-bold text-gray-900">{formatPrice(pricing.currency, total)}</p>
+                      <p className="text-lg font-bold text-gray-900">{formatPrice(pricing?.currency, total)}</p>
                       <p className="text-xs text-gray-500">Complete all required fields to continue</p>
                     </div>
                     <div className="flex gap-2">
@@ -208,15 +208,15 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
                 <div className="flex items-center gap-2 mb-4"><span className="w-1 h-5 bg-orange-500 rounded-sm" /><h2 className="text-lg font-bold">What's included / excluded</h2></div>
                 <div className="grid sm:grid-cols-2 gap-4 text-sm bg-gray-50 p-5 rounded-xl border border-gray-100">
                   <div>
-                    <p className="font-medium text-gray-900 mb-2 flex items-center gap-1.5"><CheckCircle2 size={16} className="text-emerald-500"/> Included</p>
+                    <p className="font-medium text-gray-900 mb-2 flex items-center gap-1.5"><Icon name="CheckCircle2" size={16} className="text-emerald-500"/> Included</p>
                     <ul className="space-y-1 text-gray-700 list-disc list-inside">
-                      {inclusions.included.map((it, i) => (<li key={i}>{it}</li>))}
+                      {inclusions?.included?.map((it, i) => (<li key={i}>{it}</li>))}
                     </ul>
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900 mb-2 flex items-center gap-1.5"><X size={16} className="text-red-500"/> Excluded</p>
+                    <p className="font-medium text-gray-900 mb-2 flex items-center gap-1.5"><Icon name="X" size={16} className="text-red-500"/> Excluded</p>
                     <ul className="space-y-1 text-gray-700 list-disc list-inside">
-                      {inclusions.excluded.map((it, i) => (<li key={i}>{it}</li>))}
+                      {inclusions?.excluded?.map((it, i) => (<li key={i}>{it}</li>))}
                     </ul>
                   </div>
                 </div>
@@ -224,16 +224,16 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
               <section className="mt-8 mb-4">
                 <div className="flex items-center gap-2 mb-4"><span className="w-1 h-5 bg-orange-500 rounded-sm" /><h2 className="text-lg font-bold">Good to know</h2></div>
                 <div className="text-sm text-gray-700 space-y-2">
-                  <p><span className="font-medium text-gray-900">Child policy: </span>{restrictions.child_policy}</p>
-                  <p><span className="font-medium text-gray-900">Accessibility: </span>{restrictions.accessibility}</p>
-                  <p><span className="font-medium text-gray-900">Cancellation: </span>{policies.cancellation}</p>
+                  <p><span className="font-medium text-gray-900">Child policy: </span>{restrictions?.child_policy}</p>
+                  <p><span className="font-medium text-gray-900">Accessibility: </span>{restrictions?.accessibility}</p>
+                  <p><span className="font-medium text-gray-900">Cancellation: </span>{policies?.cancellation}</p>
                 </div>
               </section>
             </div>
             <div className="w-full lg:w-[300px] shrink-0 space-y-4">
               <div className="border border-gray-200 rounded-xl p-4 lg:sticky lg:top-4 bg-white shadow-sm">
                 <p className="text-xs text-gray-500">From</p>
-                <p className="text-2xl font-bold text-gray-900">{formatPrice(pricing.currency, pricing.adult_price)}</p>
+                <p className="text-2xl font-bold text-gray-900">{formatPrice(pricing?.currency, pricing?.adult_price)}</p>
                 <button className="w-full bg-orange-500 hover:bg-orange-600 text-white font-medium text-sm py-2.5 rounded-lg mt-3">Select options</button>
               </div>
               <div className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm">
@@ -246,15 +246,15 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
                 <div className="mt-4">
                   <p className="font-semibold text-gray-900 mb-3">Itinerary</p>
                   <div className="flex gap-2 text-sm">
-                    <MapPin size={15} className="text-orange-500 mt-0.5 shrink-0" />
-                    <p><span className="font-medium">{klook_itinerary.start.time}</span> · Departure from {klook_itinerary.start.location}</p>
+                    <Icon name="MapPin" size={15} className="text-orange-500 mt-0.5 shrink-0" />
+                    <p><span className="font-medium">{klook_itinerary?.start?.time}</span> · Departure from {klook_itinerary?.start?.location}</p>
                   </div>
                   <div className="flex gap-3 text-xs text-gray-500 mt-2">
-                    <span className="flex items-center gap-1"><Clock size={13} /> {basic_info.duration}</span>
-                    <span className="flex items-center gap-1"><Flag size={13} /> Guided tour</span>
+                    <span className="flex items-center gap-1"><Icon name="Clock" size={13} /> {basic_info.duration}</span>
+                    <span className="flex items-center gap-1"><Icon name="Flag" size={13} /> Guided tour</span>
                   </div>
                   <div className="mt-4 space-y-4">
-                    {klook_itinerary.segments.map((seg, i) => (
+                    {klook_itinerary?.segments?.map((seg, i) => (
                       <div key={i} className="border-l-2 border-orange-200 pl-3">
                         <p className="text-xs text-gray-400">{seg.time} · {seg.type}</p>
                         <p className="text-sm font-medium text-gray-900">{seg.name}</p>
@@ -264,8 +264,8 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
                     ))}
                   </div>
                   <div className="flex gap-2 text-sm mt-4">
-                    <MapPin size={15} className="text-gray-400 mt-0.5 shrink-0" />
-                    <p><span className="font-medium">{klook_itinerary.end.time}</span> · End at {klook_itinerary.end.location}</p>
+                    <Icon name="MapPin" size={15} className="text-gray-400 mt-0.5 shrink-0" />
+                    <p><span className="font-medium">{klook_itinerary?.end?.time}</span> · End at {klook_itinerary?.end?.location}</p>
                   </div>
                 </div>
               </div>
@@ -275,7 +275,7 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
       );
     }
 
-          function normalizeActivity(input) {
+    function normalizeActivity(input) {
         const safe = input && typeof input === "object" ? input : {};
         const b = safe.basic_info || {};
         const it = safe.klook_itinerary || {};
@@ -309,7 +309,7 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
         if (this.state.hasError) {
           return (
             <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-16 text-center">
-              <AlertTriangle className="mx-auto text-red-500" size={28} />
+              <Icon name="AlertTriangle" className="mx-auto text-red-500" size={28} />
               <p className="text-red-600 font-semibold mt-3">Couldn't render this JSON</p>
               <p className="text-sm text-gray-500 mt-1">{this.state.message}</p>
             </div>
@@ -319,56 +319,47 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
       }
     }
 
-    function JsonInputDrawer({ jsonText, setJsonText, onRender, error, success }) {
-      const [open, setOpen] = useState(false); // Default to closed for the iframe preview!
-      return (
-        <div className="border-b border-gray-200 bg-white sticky top-0 z-20 shadow-sm">
-          <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
-            <button type="button" onClick={() => setOpen((o) => !o)} className="w-full flex items-center justify-between py-3 text-sm font-semibold text-gray-800">
-              <span className="flex items-center gap-2"><Code2 size={16} className="text-orange-500" /> View / Edit Raw JSON</span>
-              <ChevronDown size={16} className={`text-gray-500 transition-transform ${open ? "rotate-180" : ""}`} />
-            </button>
-            {open && (
-              <div className="pb-4">
-                <textarea value={jsonText} onChange={(e) => setJsonText(e.target.value)} rows={10} spellCheck={false} className="w-full font-mono text-xs border border-gray-300 rounded-lg p-3 bg-gray-50 text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400 resize-y" />
-                <div className="flex items-center justify-end gap-3 mt-3">
-                  <button type="button" onClick={onRender} className="bg-orange-500 hover:bg-orange-600 text-white font-medium text-sm px-5 py-2 rounded-lg">Update UI</button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-      function App() {
-        // FIX: Safely normalize the injected data immediately on load!
-        const initialActivities = Array.isArray(sampleActivities) ? sampleActivities : [sampleActivities];
-        const normalizedInitial = initialActivities.map(normalizeActivity);
-
-        const [jsonText, setJsonText] = useState(JSON.stringify(normalizedInitial, null, 2));
-        const [activities, setActivities] = useState(normalizedInitial);
+    function App() {
+        const [jsonText, setJsonText] = useState("[]");
+        const [activities, setActivities] = useState([]);
         const [error, setError] = useState("");
-        const [success, setSuccess] = useState("");
         const [renderKey, setRenderKey] = useState(0);
 
-      const handleRender = () => {
-        if (!jsonText.trim()) return;
-        try {
-          const parsed = JSON.parse(jsonText);
-          const nextActivities = Array.isArray(parsed) ? parsed : [parsed];
-          setActivities(nextActivities.map(normalizeActivity));
-          setRenderKey((k) => k + 1);
-        } catch (e) { console.error(e); }
-      };
+        // This effect runs once when the component mounts
+        // It securely extracts the JSON string from the hidden <script> tag
+        useEffect(() => {
+            try {
+                const el = document.getElementById("injected-data");
+                if (el && el.textContent) {
+                    const rawStr = el.textContent.trim();
+                    if(rawStr !== "__INJECT_JSON_HERE__") {
+                         const parsed = JSON.parse(rawStr);
+                         const initialActivities = Array.isArray(parsed) ? parsed : [parsed];
+                         const normalizedInitial = initialActivities.map(normalizeActivity);
+                         
+                         setJsonText(JSON.stringify(normalizedInitial, null, 2));
+                         setActivities(normalizedInitial);
+                    }
+                }
+            } catch (err) {
+                setError(`JSON Parsing Error: ${err.message}`);
+                console.error("Failed to parse injected JSON:", err);
+            }
+        }, []);
 
       return (
         <div className="bg-white min-h-screen">
-          <JsonInputDrawer jsonText={jsonText} setJsonText={setJsonText} onRender={handleRender} error={error} success={success} />
+          {error && (
+              <div className="bg-red-50 p-4 text-red-600 text-sm">{error}</div>
+          )}
           <RenderErrorBoundary key={renderKey}>
-            {activities.map((activity, index) => (
-              <ActivityPage key={index} data={activity} seed={`activity-${index}`} />
-            ))}
+            {activities.length === 0 && !error ? (
+                <div className="p-8 text-center text-gray-500">Loading preview...</div>
+            ) : (
+                activities.map((activity, index) => (
+                <ActivityPage key={index} data={activity} seed={`activity-${index}`} />
+                ))
+            )}
           </RenderErrorBoundary>
         </div>
       );
@@ -1584,7 +1575,8 @@ with st.sidebar:
 t1, t2, t3, t4, t5, t6, t7 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "🛡️ Merchant Screening Tool", "📝 Grammar Check", "🔎 Klook Search"])
 
 with t1:
-    url = st.text_input("Paste Tour Link")
+    # Adding label_visibility and using standard input
+    url = st.text_input("Paste Tour Link", value="", key="main_url_input")
     if st.button("Generate from Link"):
         keys = get_all_keys()
         if not keys: st.error("❌ No API Keys"); st.stop()
