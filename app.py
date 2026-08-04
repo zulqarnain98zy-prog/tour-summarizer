@@ -21,7 +21,6 @@ from urllib3.poolmanager import PoolManager
 import streamlit.components.v1 as components # <--- ADD THIS IMPORT
 
 # --- REACT FRONTEND TEMPLATE (INJECTED) ---
-# FIX: Removed the 'f' prefix so Python doesn't try to parse JavaScript braces
 REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -31,8 +30,8 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- FIX: Load Lucide Icons safely -->
-  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- PROPER LUCIDE-REACT CDN IMPORT -->
+  <script src="https://unpkg.com/lucide-react@0.292.0/dist/umd/lucide-react.js"></script>
   <style>body { margin: 0; padding: 0; background-color: #f9fafb; }</style>
 </head>
 <body>
@@ -42,11 +41,12 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
   <script type="text/babel">
     const { useState, useEffect } = React;
     
-    // FIX: Fallback manual icons if lucideReact fails to load via CDN
-    const Icon = ({ name, ...props }) => {
-      const IconComp = window.lucide && window.lucide[name] ? window.lucide[name] : () => <span {...props}>•</span>;
-      return <IconComp {...props} />;
-    };
+    // Safely destructure icons from the global lucide object
+    const {
+      ChevronRight, Star, MapPin, Heart, Share2, Calendar, Minus, Plus,
+      ChevronUp, ShieldCheck, Leaf, Clock, Flag, Image: ImageIcon,
+      ChevronDown, Code2, AlertTriangle, CheckCircle2, X
+    } = window.lucide;
 
     const fallbackData = {
         basic_info: {
@@ -86,7 +86,7 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
               className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 text-gray-500 hover:bg-gray-50 disabled:opacity-40"
               disabled={value <= min}
             >
-              -
+              <Minus size={14} />
             </button>
             <span className="w-4 text-center text-sm text-gray-900">{value}</span>
             <button
@@ -94,7 +94,7 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
               onClick={() => onChange(value + 1)}
               className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 text-gray-500 hover:bg-gray-50"
             >
-              +
+              <Plus size={14} />
             </button>
           </div>
         </div>
@@ -115,15 +115,15 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
       return (
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-6 font-sans text-gray-900">
           <nav className="flex flex-wrap items-center gap-1 text-xs text-gray-500 mb-3">
-            <span className="hover:underline cursor-pointer">Home</span> <span className="mx-1">›</span>
-            <span className="hover:underline cursor-pointer">{basic_info?.city_country}</span> <span className="mx-1">›</span>
-            <span className="hover:underline cursor-pointer">Things to do</span> <span className="mx-1">›</span>
+            <span className="hover:underline cursor-pointer">Home</span> <ChevronRight size={12} />
+            <span className="hover:underline cursor-pointer">{basic_info?.city_country}</span> <ChevronRight size={12} />
+            <span className="hover:underline cursor-pointer">Things to do</span> <ChevronRight size={12} />
             <span className="text-gray-400 truncate max-w-[220px]">{basic_info?.activity_title}</span>
           </nav>
           <h1 className="text-2xl sm:text-[28px] font-bold text-gray-900 leading-tight">{basic_info?.activity_title}</h1>
           <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
-            <span className="flex items-center gap-1 bg-violet-50 text-violet-600 font-medium px-2 py-1 rounded">🛡️ Klook's choice</span>
-            <span className="flex items-center gap-1 text-emerald-600 font-medium px-2 py-1">🌿 Certified Sustainable Partner</span>
+            <span className="flex items-center gap-1 bg-violet-50 text-violet-600 font-medium px-2 py-1 rounded"><ShieldCheck size={13} /> Klook's choice</span>
+            <span className="flex items-center gap-1 text-emerald-600 font-medium px-2 py-1"><Leaf size={13} /> Certified Sustainable Partner</span>
             <span className="text-gray-500 px-2 py-1 border-l border-gray-200">English</span>
             <span className="text-gray-500 px-2 py-1 border-l border-gray-200">{basic_info?.group_type}</span>
           </div>
@@ -132,11 +132,15 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
             <span className="bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-md">{basic_info?.duration} Duration</span>
           </div>
           <div className="flex flex-wrap items-center gap-3 mt-3 text-sm">
-            <span className="flex items-center gap-1 font-semibold text-gray-900"><span className="text-orange-500">★</span> —</span>
+            <span className="flex items-center gap-1 font-semibold text-gray-900"><Star size={15} className="fill-orange-500 text-orange-500" /> —</span>
             <span className="text-gray-400">·</span>
             <span className="underline text-gray-700 cursor-pointer">Reviews pending</span>
             <span className="text-gray-400">·</span>
-            <span className="flex items-center gap-1 text-gray-600">📍 Departing from {basic_info?.city_country}</span>
+            <span className="flex items-center gap-1 text-gray-600"><MapPin size={14} /> Departing from {basic_info?.city_country}</span>
+            <div className="ml-auto flex items-center gap-4 text-gray-500">
+              <button className="flex items-center gap-1 hover:text-gray-800"><Share2 size={15} /></button>
+              <button className="flex items-center gap-1 hover:text-gray-800"><Heart size={15} /> Save to wishlist</button>
+            </div>
           </div>
           <div className="grid grid-cols-3 grid-rows-2 gap-1 rounded-xl overflow-hidden mt-4 h-[260px] sm:h-[380px]">
             <div className="row-span-2 col-span-1"><img src={images[0]} alt="Main" className="w-full h-full object-cover" /></div>
@@ -145,7 +149,7 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
             <img src={images[3]} alt="" className="w-full h-full object-cover" />
             <div className="relative">
               <img src={images[4]} alt="" className="w-full h-full object-cover" />
-              <button className="absolute bottom-2 right-2 bg-white/95 text-gray-800 text-xs font-medium px-3 py-1.5 rounded-md shadow flex items-center gap-1"><Icon name="Image" size={13} /> Gallery</button>
+              <button className="absolute bottom-2 right-2 bg-white/95 text-gray-800 text-xs font-medium px-3 py-1.5 rounded-md shadow flex items-center gap-1"><ImageIcon size={13} /> Gallery</button>
             </div>
           </div>
           <div className="flex flex-col lg:flex-row gap-6 mt-5">
@@ -158,7 +162,7 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
                     ))}
                   </ul>
                   <button onClick={() => setSeeMore((s) => !s)} className="flex items-center gap-1 text-sm font-medium text-gray-900 underline mt-3">
-                    {seeMore ? "See less" : "See more"} {seeMore ? <Icon name="ChevronUp" size={14} /> : <Icon name="ChevronRight" size={14} />}
+                    {seeMore ? "See less" : "See more"} {seeMore ? <ChevronUp size={14} /> : <ChevronRight size={14} />}
                   </button>
                 </div>
                 <div className="text-3xl hidden sm:block">👍</div>
@@ -171,7 +175,7 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
                 <div className="border border-gray-200 rounded-xl p-5 bg-white shadow-sm">
                   <div className="flex items-center justify-between"><h3 className="font-semibold text-gray-900">Select options</h3><button className="text-sm text-orange-600 font-medium">Clear all</button></div>
                   <p className="text-xs text-gray-500 mt-1">Please select a participation date</p>
-                  <button className="mt-3 flex items-center gap-2 border border-orange-300 text-orange-600 text-sm font-medium px-4 py-2 rounded-lg"><Icon name="Calendar" size={15} /> Check availability</button>
+                  <button className="mt-3 flex items-center gap-2 border border-orange-300 text-orange-600 text-sm font-medium px-4 py-2 rounded-lg"><Calendar size={15} /> Check availability</button>
                   <p className="text-sm font-medium text-gray-900 mt-5 mb-2">Package type</p>
                   <div className="flex flex-wrap gap-3">
                     {["standard", "premium"].map((type) => (
@@ -208,13 +212,13 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
                 <div className="flex items-center gap-2 mb-4"><span className="w-1 h-5 bg-orange-500 rounded-sm" /><h2 className="text-lg font-bold">What's included / excluded</h2></div>
                 <div className="grid sm:grid-cols-2 gap-4 text-sm bg-gray-50 p-5 rounded-xl border border-gray-100">
                   <div>
-                    <p className="font-medium text-gray-900 mb-2 flex items-center gap-1.5"><Icon name="CheckCircle2" size={16} className="text-emerald-500"/> Included</p>
+                    <p className="font-medium text-gray-900 mb-2 flex items-center gap-1.5"><CheckCircle2 size={16} className="text-emerald-500"/> Included</p>
                     <ul className="space-y-1 text-gray-700 list-disc list-inside">
                       {inclusions?.included?.map((it, i) => (<li key={i}>{it}</li>))}
                     </ul>
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900 mb-2 flex items-center gap-1.5"><Icon name="X" size={16} className="text-red-500"/> Excluded</p>
+                    <p className="font-medium text-gray-900 mb-2 flex items-center gap-1.5"><X size={16} className="text-red-500"/> Excluded</p>
                     <ul className="space-y-1 text-gray-700 list-disc list-inside">
                       {inclusions?.excluded?.map((it, i) => (<li key={i}>{it}</li>))}
                     </ul>
@@ -246,12 +250,12 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
                 <div className="mt-4">
                   <p className="font-semibold text-gray-900 mb-3">Itinerary</p>
                   <div className="flex gap-2 text-sm">
-                    <Icon name="MapPin" size={15} className="text-orange-500 mt-0.5 shrink-0" />
+                    <MapPin size={15} className="text-orange-500 mt-0.5 shrink-0" />
                     <p><span className="font-medium">{klook_itinerary?.start?.time}</span> · Departure from {klook_itinerary?.start?.location}</p>
                   </div>
                   <div className="flex gap-3 text-xs text-gray-500 mt-2">
-                    <span className="flex items-center gap-1"><Icon name="Clock" size={13} /> {basic_info.duration}</span>
-                    <span className="flex items-center gap-1"><Icon name="Flag" size={13} /> Guided tour</span>
+                    <span className="flex items-center gap-1"><Clock size={13} /> {basic_info.duration}</span>
+                    <span className="flex items-center gap-1"><Flag size={13} /> Guided tour</span>
                   </div>
                   <div className="mt-4 space-y-4">
                     {klook_itinerary?.segments?.map((seg, i) => (
@@ -264,7 +268,7 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
                     ))}
                   </div>
                   <div className="flex gap-2 text-sm mt-4">
-                    <Icon name="MapPin" size={15} className="text-gray-400 mt-0.5 shrink-0" />
+                    <MapPin size={15} className="text-gray-400 mt-0.5 shrink-0" />
                     <p><span className="font-medium">{klook_itinerary?.end?.time}</span> · End at {klook_itinerary?.end?.location}</p>
                   </div>
                 </div>
@@ -309,7 +313,7 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
         if (this.state.hasError) {
           return (
             <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-16 text-center">
-              <Icon name="AlertTriangle" className="mx-auto text-red-500" size={28} />
+              <AlertTriangle className="mx-auto text-red-500" size={28} />
               <p className="text-red-600 font-semibold mt-3">Couldn't render this JSON</p>
               <p className="text-sm text-gray-500 mt-1">{this.state.message}</p>
             </div>
@@ -319,14 +323,35 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
       }
     }
 
+    function JsonInputDrawer({ jsonText, setJsonText, onRender, error, success }) {
+      const [open, setOpen] = useState(false);
+      return (
+        <div className="border-b border-gray-200 bg-white sticky top-0 z-20 shadow-sm">
+          <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
+            <button type="button" onClick={() => setOpen((o) => !o)} className="w-full flex items-center justify-between py-3 text-sm font-semibold text-gray-800">
+              <span className="flex items-center gap-2"><Code2 size={16} className="text-orange-500" /> View / Edit Raw JSON</span>
+              <ChevronDown size={16} className={`text-gray-500 transition-transform ${open ? "rotate-180" : ""}`} />
+            </button>
+            {open && (
+              <div className="pb-4">
+                <textarea value={jsonText} onChange={(e) => setJsonText(e.target.value)} rows={10} spellCheck={false} className="w-full font-mono text-xs border border-gray-300 rounded-lg p-3 bg-gray-50 text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400 resize-y" />
+                <div className="flex items-center justify-end gap-3 mt-3">
+                  <button type="button" onClick={onRender} className="bg-orange-500 hover:bg-orange-600 text-white font-medium text-sm px-5 py-2 rounded-lg">Update UI</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     function App() {
         const [jsonText, setJsonText] = useState("[]");
         const [activities, setActivities] = useState([]);
         const [error, setError] = useState("");
         const [renderKey, setRenderKey] = useState(0);
 
-        // This effect runs once when the component mounts
-        // It securely extracts the JSON string from the hidden <script> tag
+        // Securely extracts the JSON string from the hidden <script> tag on mount
         useEffect(() => {
             try {
                 const el = document.getElementById("injected-data");
@@ -347,8 +372,19 @@ REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
             }
         }, []);
 
+      const handleRender = () => {
+        if (!jsonText.trim()) return;
+        try {
+          const parsed = JSON.parse(jsonText);
+          const nextActivities = Array.isArray(parsed) ? parsed : [parsed];
+          setActivities(nextActivities.map(normalizeActivity));
+          setRenderKey((k) => k + 1);
+        } catch (e) { console.error(e); }
+      };
+
       return (
         <div className="bg-white min-h-screen">
+          <JsonInputDrawer jsonText={jsonText} setJsonText={setJsonText} onRender={handleRender} error={error} />
           {error && (
               <div className="bg-red-50 p-4 text-red-600 text-sm">{error}</div>
           )}
