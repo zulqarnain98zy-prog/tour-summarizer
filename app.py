@@ -1519,6 +1519,7 @@ def render_output(json_text, url_input=None):
                 # Render the HTML in an iframe (Height 850px gives a great view)
                 components.html(final_html, height=850, scrolling=True)
 
+
 # --- SMART ROTATION (FIXED ERROR EXPOSURE) ---
 def smart_rotation_wrapper(text, keys, lang="English"):
     if not keys: return "⚠️ No API keys found."
