@@ -18,394 +18,7 @@ import ssl
 import unicodedata
 from requests.adapters import HTTPAdapter
 from urllib3.poolmanager import PoolManager
-import streamlit.components.v1 as components # <--- ADD THIS IMPORT
-
-# --- REACT FRONTEND TEMPLATE (INJECTED) ---
-REACT_FRONTEND_TEMPLATE = """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- PROPER LUCIDE-REACT CDN IMPORT -->
-  <script src="https://unpkg.com/lucide-react@0.292.0/dist/umd/lucide-react.js"></script>
-  <style>body { margin: 0; padding: 0; background-color: #f9fafb; }</style>
-</head>
-<body>
-  <!-- SAFE INJECTION: Hidden DOM element holds JSON to prevent parsing crashes -->
-  <script id="injected-data" type="application/json">__INJECT_JSON_HERE__</script>
-  <div id="root"></div>
-  <script type="text/babel">
-    const { useState, useEffect } = React;
-    
-    // Safely destructure icons from the global lucide object
-    const {
-      ChevronRight, Star, MapPin, Heart, Share2, Calendar, Minus, Plus,
-      ChevronUp, ShieldCheck, Leaf, Clock, Flag, Image: ImageIcon,
-      ChevronDown, Code2, AlertTriangle, CheckCircle2, X
-    } = window.lucide;
-
-    const fallbackData = {
-        basic_info: {
-          activity_title: "Generated Activity", city_country: "Location", group_type: "Join-in",
-          min_pax: "1", max_pax: "20", duration: "TBC", main_attractions: "",
-          highlights: [], what_to_expect: "", selling_points: []
-        },
-        klook_itinerary: { start: {}, segments: [], end: {} },
-        policies: {}, inclusions: { included: [], excluded: [] },
-        restrictions: {}, seo: {}, pricing: {}, analysis: {}
-      };
-
-    const galleryImages = (seedPrefix) => [
-      `https://picsum.photos/seed/${seedPrefix}-main/900/700`,
-      `https://picsum.photos/seed/${seedPrefix}-a/500/340`,
-      `https://picsum.photos/seed/${seedPrefix}-b/500/340`,
-      `https://picsum.photos/seed/${seedPrefix}-c/500/340`,
-      `https://picsum.photos/seed/${seedPrefix}-d/500/340`,
-    ];
-
-    function formatPrice(currency, amount) {
-      if (!currency || currency === "TBC") return "TBC";
-      return `${currency} ${Number(amount || 0).toFixed(2)}`;
-    }
-
-    function QuantityRow({ label, sublabel, value, onChange, min = 0 }) {
-      return (
-        <div className="flex items-center justify-between border border-gray-200 rounded-lg px-4 py-3">
-          <div>
-            <p className="text-sm font-medium text-gray-900">{label}</p>
-            {sublabel && <p className="text-xs text-orange-600 mt-0.5">{sublabel}</p>}
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => onChange(Math.max(min, value - 1))}
-              className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 text-gray-500 hover:bg-gray-50 disabled:opacity-40"
-              disabled={value <= min}
-            >
-              <Minus size={14} />
-            </button>
-            <span className="w-4 text-center text-sm text-gray-900">{value}</span>
-            <button
-              type="button"
-              onClick={() => onChange(value + 1)}
-              className="w-7 h-7 flex items-center justify-center rounded border border-gray-300 text-gray-500 hover:bg-gray-50"
-            >
-              <Plus size={14} />
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    function ActivityPage({ data, seed }) {
-      const { basic_info, klook_itinerary, policies, inclusions, restrictions, pricing } = data;
-      const [seeMore, setSeeMore] = useState(false);
-      const [packageType, setPackageType] = useState("standard");
-      const [adultQty, setAdultQty] = useState(1);
-      const [childQty, setChildQty] = useState(0);
-
-      const images = galleryImages(seed);
-      const unitPrice = Number(pricing?.adult_price || 0);
-      const total = unitPrice * adultQty + Number(pricing?.child_price || 0) * childQty;
-
-      return (
-        <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-6 font-sans text-gray-900">
-          <nav className="flex flex-wrap items-center gap-1 text-xs text-gray-500 mb-3">
-            <span className="hover:underline cursor-pointer">Home</span> <ChevronRight size={12} />
-            <span className="hover:underline cursor-pointer">{basic_info?.city_country}</span> <ChevronRight size={12} />
-            <span className="hover:underline cursor-pointer">Things to do</span> <ChevronRight size={12} />
-            <span className="text-gray-400 truncate max-w-[220px]">{basic_info?.activity_title}</span>
-          </nav>
-          <h1 className="text-2xl sm:text-[28px] font-bold text-gray-900 leading-tight">{basic_info?.activity_title}</h1>
-          <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
-            <span className="flex items-center gap-1 bg-violet-50 text-violet-600 font-medium px-2 py-1 rounded"><ShieldCheck size={13} /> Klook's choice</span>
-            <span className="flex items-center gap-1 text-emerald-600 font-medium px-2 py-1"><Leaf size={13} /> Certified Sustainable Partner</span>
-            <span className="text-gray-500 px-2 py-1 border-l border-gray-200">English</span>
-            <span className="text-gray-500 px-2 py-1 border-l border-gray-200">{basic_info?.group_type}</span>
-          </div>
-          <div className="flex flex-wrap gap-2 mt-3">
-            <span className="bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-md">Meet with guide</span>
-            <span className="bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-md">{basic_info?.duration} Duration</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 mt-3 text-sm">
-            <span className="flex items-center gap-1 font-semibold text-gray-900"><Star size={15} className="fill-orange-500 text-orange-500" /> —</span>
-            <span className="text-gray-400">·</span>
-            <span className="underline text-gray-700 cursor-pointer">Reviews pending</span>
-            <span className="text-gray-400">·</span>
-            <span className="flex items-center gap-1 text-gray-600"><MapPin size={14} /> Departing from {basic_info?.city_country}</span>
-            <div className="ml-auto flex items-center gap-4 text-gray-500">
-              <button className="flex items-center gap-1 hover:text-gray-800"><Share2 size={15} /></button>
-              <button className="flex items-center gap-1 hover:text-gray-800"><Heart size={15} /> Save to wishlist</button>
-            </div>
-          </div>
-          <div className="grid grid-cols-3 grid-rows-2 gap-1 rounded-xl overflow-hidden mt-4 h-[260px] sm:h-[380px]">
-            <div className="row-span-2 col-span-1"><img src={images[0]} alt="Main" className="w-full h-full object-cover" /></div>
-            <img src={images[1]} alt="" className="w-full h-full object-cover" />
-            <img src={images[2]} alt="" className="w-full h-full object-cover" />
-            <img src={images[3]} alt="" className="w-full h-full object-cover" />
-            <div className="relative">
-              <img src={images[4]} alt="" className="w-full h-full object-cover" />
-              <button className="absolute bottom-2 right-2 bg-white/95 text-gray-800 text-xs font-medium px-3 py-1.5 rounded-md shadow flex items-center gap-1"><ImageIcon size={13} /> Gallery</button>
-            </div>
-          </div>
-          <div className="flex flex-col lg:flex-row gap-6 mt-5">
-            <div className="flex-1 min-w-0">
-              <div className="bg-orange-50/60 border border-orange-100 rounded-xl p-4 flex items-start justify-between gap-4">
-                <div>
-                  <ul className="space-y-2 text-sm text-gray-800">
-                    {(seeMore ? basic_info.highlights : basic_info.highlights.slice(0, 2)).map((h, i) => (
-                      <li key={i} className="flex gap-2"><span className="text-gray-400 mt-1">•</span><span>{h}</span></li>
-                    ))}
-                  </ul>
-                  <button onClick={() => setSeeMore((s) => !s)} className="flex items-center gap-1 text-sm font-medium text-gray-900 underline mt-3">
-                    {seeMore ? "See less" : "See more"} {seeMore ? <ChevronUp size={14} /> : <ChevronRight size={14} />}
-                  </button>
-                </div>
-                <div className="text-3xl hidden sm:block">👍</div>
-              </div>
-              <div className="flex flex-wrap gap-2 mt-3">
-                {basic_info.selling_points.map((s, i) => (<span key={i} className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full">{s}</span>))}
-              </div>
-              <section className="mt-8">
-                <div className="flex items-center gap-2 mb-4"><span className="w-1 h-5 bg-orange-500 rounded-sm" /><h2 className="text-lg font-bold">Package options</h2></div>
-                <div className="border border-gray-200 rounded-xl p-5 bg-white shadow-sm">
-                  <div className="flex items-center justify-between"><h3 className="font-semibold text-gray-900">Select options</h3><button className="text-sm text-orange-600 font-medium">Clear all</button></div>
-                  <p className="text-xs text-gray-500 mt-1">Please select a participation date</p>
-                  <button className="mt-3 flex items-center gap-2 border border-orange-300 text-orange-600 text-sm font-medium px-4 py-2 rounded-lg"><Calendar size={15} /> Check availability</button>
-                  <p className="text-sm font-medium text-gray-900 mt-5 mb-2">Package type</p>
-                  <div className="flex flex-wrap gap-3">
-                    {["standard", "premium"].map((type) => (
-                      <button key={type} onClick={() => setPackageType(type)} className={`relative px-4 py-2.5 rounded-lg border text-sm font-medium ${packageType === type ? "border-orange-500 bg-orange-50 text-gray-900" : "border-gray-300 text-gray-700"}`}>
-                        {type === "standard" ? "Join-in Tour" : "Join-in Tour with Add-on"}
-                        <span className="absolute -top-2 -right-2 bg-orange-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">TBC off</span>
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-sm font-medium text-gray-900 mt-6 mb-2">Quantity</p>
-                  <div className="space-y-3">
-                    <QuantityRow label="Adult" sublabel="Minimum requirement" value={adultQty} onChange={setAdultQty} min={Number(basic_info.min_pax) || 1} />
-                    <QuantityRow label="Child" sublabel={`Age ${pricing?.child_age}`} value={childQty} onChange={setChildQty} />
-                  </div>
-                  <div className="flex items-center justify-between mt-6">
-                    <div>
-                      <p className="text-lg font-bold text-gray-900">{formatPrice(pricing?.currency, total)}</p>
-                      <p className="text-xs text-gray-500">Complete all required fields to continue</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button className="border border-orange-500 text-orange-600 font-medium text-sm px-5 py-2.5 rounded-lg">Add to cart</button>
-                      <button className="bg-orange-500 hover:bg-orange-600 text-white font-medium text-sm px-5 py-2.5 rounded-lg">Book now</button>
-                    </div>
-                  </div>
-                </div>
-              </section>
-              <section className="mt-8">
-                <div className="flex items-center gap-2 mb-4"><span className="w-1 h-5 bg-orange-500 rounded-sm" /><h2 className="text-lg font-bold">What to expect</h2></div>
-                <p className="text-sm text-gray-700 leading-relaxed">{basic_info.what_to_expect}</p>
-                <div className="mt-4 rounded-xl overflow-hidden"><img src={images[0]} alt="" className="w-full h-[280px] sm:h-[380px] object-cover" /><p className="text-xs text-gray-500 mt-2">▲ {basic_info.main_attractions}</p></div>
-                <div className="mt-4 rounded-xl overflow-hidden"><img src={images[1]} alt="" className="w-full h-[280px] sm:h-[380px] object-cover" /></div>
-              </section>
-              <section className="mt-8">
-                <div className="flex items-center gap-2 mb-4"><span className="w-1 h-5 bg-orange-500 rounded-sm" /><h2 className="text-lg font-bold">What's included / excluded</h2></div>
-                <div className="grid sm:grid-cols-2 gap-4 text-sm bg-gray-50 p-5 rounded-xl border border-gray-100">
-                  <div>
-                    <p className="font-medium text-gray-900 mb-2 flex items-center gap-1.5"><CheckCircle2 size={16} className="text-emerald-500"/> Included</p>
-                    <ul className="space-y-1 text-gray-700 list-disc list-inside">
-                      {inclusions?.included?.map((it, i) => (<li key={i}>{it}</li>))}
-                    </ul>
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900 mb-2 flex items-center gap-1.5"><X size={16} className="text-red-500"/> Excluded</p>
-                    <ul className="space-y-1 text-gray-700 list-disc list-inside">
-                      {inclusions?.excluded?.map((it, i) => (<li key={i}>{it}</li>))}
-                    </ul>
-                  </div>
-                </div>
-              </section>
-              <section className="mt-8 mb-4">
-                <div className="flex items-center gap-2 mb-4"><span className="w-1 h-5 bg-orange-500 rounded-sm" /><h2 className="text-lg font-bold">Good to know</h2></div>
-                <div className="text-sm text-gray-700 space-y-2">
-                  <p><span className="font-medium text-gray-900">Child policy: </span>{restrictions?.child_policy}</p>
-                  <p><span className="font-medium text-gray-900">Accessibility: </span>{restrictions?.accessibility}</p>
-                  <p><span className="font-medium text-gray-900">Cancellation: </span>{policies?.cancellation}</p>
-                </div>
-              </section>
-            </div>
-            <div className="w-full lg:w-[300px] shrink-0 space-y-4">
-              <div className="border border-gray-200 rounded-xl p-4 lg:sticky lg:top-4 bg-white shadow-sm">
-                <p className="text-xs text-gray-500">From</p>
-                <p className="text-2xl font-bold text-gray-900">{formatPrice(pricing?.currency, pricing?.adult_price)}</p>
-                <button className="w-full bg-orange-500 hover:bg-orange-600 text-white font-medium text-sm py-2.5 rounded-lg mt-3">Select options</button>
-              </div>
-              <div className="border border-gray-200 rounded-xl p-4 bg-white shadow-sm">
-                <div className="flex items-center justify-between"><h3 className="font-semibold text-gray-900">Package details</h3></div>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  <span className="text-xs border border-gray-200 rounded px-2 py-1 text-gray-600">Book now, pay later</span>
-                  <span className="text-xs border border-gray-200 rounded px-2 py-1 text-gray-600">Free cancellation</span>
-                  <span className="text-xs border border-gray-200 rounded px-2 py-1 text-gray-600">Instant confirmation</span>
-                </div>
-                <div className="mt-4">
-                  <p className="font-semibold text-gray-900 mb-3">Itinerary</p>
-                  <div className="flex gap-2 text-sm">
-                    <MapPin size={15} className="text-orange-500 mt-0.5 shrink-0" />
-                    <p><span className="font-medium">{klook_itinerary?.start?.time}</span> · Departure from {klook_itinerary?.start?.location}</p>
-                  </div>
-                  <div className="flex gap-3 text-xs text-gray-500 mt-2">
-                    <span className="flex items-center gap-1"><Clock size={13} /> {basic_info.duration}</span>
-                    <span className="flex items-center gap-1"><Flag size={13} /> Guided tour</span>
-                  </div>
-                  <div className="mt-4 space-y-4">
-                    {klook_itinerary?.segments?.map((seg, i) => (
-                      <div key={i} className="border-l-2 border-orange-200 pl-3">
-                        <p className="text-xs text-gray-400">{seg.time} · {seg.type}</p>
-                        <p className="text-sm font-medium text-gray-900">{seg.name}</p>
-                        <p className="text-xs text-gray-600 mt-1">{seg.details}</p>
-                        <p className="text-xs text-gray-400 mt-1">Ticket: {seg.ticket_status}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex gap-2 text-sm mt-4">
-                    <MapPin size={15} className="text-gray-400 mt-0.5 shrink-0" />
-                    <p><span className="font-medium">{klook_itinerary?.end?.time}</span> · End at {klook_itinerary?.end?.location}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    function normalizeActivity(input) {
-        const safe = input && typeof input === "object" ? input : {};
-        const b = safe.basic_info || {};
-        const it = safe.klook_itinerary || {};
-        return {
-          basic_info: {
-            ...fallbackData.basic_info, ...b,
-            highlights: Array.isArray(b.highlights) ? b.highlights : fallbackData.basic_info.highlights,
-            selling_points: Array.isArray(b.selling_points) ? b.selling_points : fallbackData.basic_info.selling_points,
-          },
-          klook_itinerary: {
-            start: { ...fallbackData.klook_itinerary.start, ...(it.start || {}) },
-            segments: Array.isArray(it.segments) && it.segments.length > 0 ? it.segments : fallbackData.klook_itinerary.segments,
-            end: { ...fallbackData.klook_itinerary.end, ...(it.end || {}) },
-          },
-          policies: { ...fallbackData.policies, ...(safe.policies || {}) },
-          inclusions: {
-            included: Array.isArray(safe.inclusions?.included) ? safe.inclusions.included : fallbackData.inclusions.included,
-            excluded: Array.isArray(safe.inclusions?.excluded) ? safe.inclusions.excluded : fallbackData.inclusions.excluded,
-          },
-          restrictions: { ...fallbackData.restrictions, ...(safe.restrictions || {}) },
-          seo: { ...fallbackData.seo, ...(safe.seo || {}) },
-          pricing: { ...fallbackData.pricing, ...(safe.pricing || {}) },
-          analysis: { ...fallbackData.analysis, ...(safe.analysis || {}) },
-        };
-      }
-
-    class RenderErrorBoundary extends React.Component {
-      constructor(props) { super(props); this.state = { hasError: false, message: "" }; }
-      static getDerivedStateFromError(err) { return { hasError: true, message: err.message || "Unknown rendering error." }; }
-      render() {
-        if (this.state.hasError) {
-          return (
-            <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-16 text-center">
-              <AlertTriangle className="mx-auto text-red-500" size={28} />
-              <p className="text-red-600 font-semibold mt-3">Couldn't render this JSON</p>
-              <p className="text-sm text-gray-500 mt-1">{this.state.message}</p>
-            </div>
-          );
-        }
-        return this.props.children;
-      }
-    }
-
-    function JsonInputDrawer({ jsonText, setJsonText, onRender, error, success }) {
-      const [open, setOpen] = useState(false);
-      return (
-        <div className="border-b border-gray-200 bg-white sticky top-0 z-20 shadow-sm">
-          <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
-            <button type="button" onClick={() => setOpen((o) => !o)} className="w-full flex items-center justify-between py-3 text-sm font-semibold text-gray-800">
-              <span className="flex items-center gap-2"><Code2 size={16} className="text-orange-500" /> View / Edit Raw JSON</span>
-              <ChevronDown size={16} className={`text-gray-500 transition-transform ${open ? "rotate-180" : ""}`} />
-            </button>
-            {open && (
-              <div className="pb-4">
-                <textarea value={jsonText} onChange={(e) => setJsonText(e.target.value)} rows={10} spellCheck={false} className="w-full font-mono text-xs border border-gray-300 rounded-lg p-3 bg-gray-50 text-gray-800 focus:outline-none focus:ring-2 focus:ring-orange-400 resize-y" />
-                <div className="flex items-center justify-end gap-3 mt-3">
-                  <button type="button" onClick={onRender} className="bg-orange-500 hover:bg-orange-600 text-white font-medium text-sm px-5 py-2 rounded-lg">Update UI</button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
-    function App() {
-        const [jsonText, setJsonText] = useState("[]");
-        const [activities, setActivities] = useState([]);
-        const [error, setError] = useState("");
-        const [renderKey, setRenderKey] = useState(0);
-
-        // Securely extracts the JSON string from the hidden <script> tag on mount
-        useEffect(() => {
-            try {
-                const el = document.getElementById("injected-data");
-                if (el && el.textContent) {
-                    const rawStr = el.textContent.trim();
-                    if(rawStr !== "__INJECT_JSON_HERE__") {
-                         const parsed = JSON.parse(rawStr);
-                         const initialActivities = Array.isArray(parsed) ? parsed : [parsed];
-                         const normalizedInitial = initialActivities.map(normalizeActivity);
-                         
-                         setJsonText(JSON.stringify(normalizedInitial, null, 2));
-                         setActivities(normalizedInitial);
-                    }
-                }
-            } catch (err) {
-                setError(`JSON Parsing Error: ${err.message}`);
-                console.error("Failed to parse injected JSON:", err);
-            }
-        }, []);
-
-      const handleRender = () => {
-        if (!jsonText.trim()) return;
-        try {
-          const parsed = JSON.parse(jsonText);
-          const nextActivities = Array.isArray(parsed) ? parsed : [parsed];
-          setActivities(nextActivities.map(normalizeActivity));
-          setRenderKey((k) => k + 1);
-        } catch (e) { console.error(e); }
-      };
-
-      return (
-        <div className="bg-white min-h-screen">
-          <JsonInputDrawer jsonText={jsonText} setJsonText={setJsonText} onRender={handleRender} error={error} />
-          {error && (
-              <div className="bg-red-50 p-4 text-red-600 text-sm">{error}</div>
-          )}
-          <RenderErrorBoundary key={renderKey}>
-            {activities.length === 0 && !error ? (
-                <div className="p-8 text-center text-gray-500">Loading preview...</div>
-            ) : (
-                activities.map((activity, index) => (
-                <ActivityPage key={index} data={activity} seed={`activity-${index}`} />
-                ))
-            )}
-          </RenderErrorBoundary>
-        </div>
-      );
-    }
-
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
-  </script>
-</body>
-</html>"""
+import streamlit.components.v1 as components 
 
 # --- NEW IMPORT FOR MERCHANT VALIDATION ---
 try:
@@ -511,6 +124,206 @@ def romanize_text(text):
     if not text: return ""
     normalized = unicodedata.normalize('NFKD', text)
     return normalized.encode('ascii', 'ignore').decode('ascii')
+
+# --- STATIC HTML PREVIEW GENERATOR (REPLACES REACT/JSX TO PREVENT CRASHES) ---
+def generate_static_html_preview(data):
+    # Safely extract all dictionaries
+    b = data.get("basic_info", {})
+    it = data.get("klook_itinerary", {})
+    pol = data.get("policies", {})
+    inc = data.get("inclusions", {})
+    res = data.get("restrictions", {})
+    pri = data.get("pricing", {})
+
+    # Safely extract primitive values
+    title = b.get("activity_title", "Generated Activity")
+    city = b.get("city_country", "Location")
+    group_type = b.get("group_type", "Join-in")
+    duration = b.get("duration", "TBC")
+    wte = b.get("what_to_expect", "")
+    attractions = b.get("main_attractions", "")
+    
+    currency = pri.get("currency", "USD")
+    adult_price = pri.get("adult_price", 0)
+    
+    # Generate Highlights HTML
+    hl_list = b.get("highlights", [])
+    if isinstance(hl_list, list):
+        hl_html = "".join([f'<li class="flex gap-2"><span class="text-gray-400 mt-1">•</span><span>{h}</span></li>' for h in hl_list])
+    else:
+        hl_html = ""
+
+    # Generate Selling Points HTML
+    sp_list = b.get("selling_points", [])
+    if isinstance(sp_list, list):
+        sp_html = "".join([f'<span class="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full">{s}</span>' for s in sp_list])
+    else:
+        sp_html = ""
+
+    # Generate Inclusions/Exclusions HTML
+    inc_list = inc.get("included", [])
+    if isinstance(inc_list, list):
+        inc_html = "".join([f'<li>{i}</li>' for i in inc_list])
+    else:
+        inc_html = ""
+        
+    exc_list = inc.get("excluded", [])
+    if isinstance(exc_list, list):
+        exc_html = "".join([f'<li>{i}</li>' for i in exc_list])
+    else:
+        exc_html = ""
+
+    # Generate Itinerary HTML
+    seg_list = it.get("segments", [])
+    seg_html = ""
+    if isinstance(seg_list, list):
+        for seg in seg_list:
+            seg_html += f"""
+            <div class="border-l-2 border-orange-200 pl-3 mb-4">
+                <p class="text-xs text-gray-400">{seg.get('time', 'TBC')} · {seg.get('type', 'Activity')}</p>
+                <p class="text-sm font-medium text-gray-900">{seg.get('name', 'Location')}</p>
+                <p class="text-xs text-gray-600 mt-1">{seg.get('details', '')}</p>
+            </div>
+            """
+
+    start_loc = it.get("start", {}).get("location", "Meeting Point")
+    start_time = it.get("start", {}).get("time", "TBC")
+    end_loc = it.get("end", {}).get("location", "Drop-off Point")
+    end_time = it.get("end", {}).get("time", "TBC")
+
+    # Generate the final HTML String (100% crash proof, native browser rendering)
+    html_template = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <script src="https://cdn.tailwindcss.com"></script>
+        <style>body {{ background-color: #ffffff; font-family: ui-sans-serif, system-ui, sans-serif; }}</style>
+    </head>
+    <body class="p-6">
+        <div class="max-w-[1200px] mx-auto text-gray-900">
+            <!-- Breadcrumb -->
+            <nav class="flex flex-wrap items-center gap-1 text-xs text-gray-500 mb-3">
+                <span>Home</span> <span class="mx-1">›</span>
+                <span>{city}</span> <span class="mx-1">›</span>
+                <span>Things to do</span> <span class="mx-1">›</span>
+                <span class="text-gray-400 truncate max-w-[220px]">{title}</span>
+            </nav>
+            
+            <h1 class="text-[28px] font-bold text-gray-900 leading-tight">{title}</h1>
+            
+            <div class="flex flex-wrap items-center gap-2 mt-2 text-xs">
+                <span class="flex items-center gap-1 bg-violet-50 text-violet-600 font-medium px-2 py-1 rounded">🛡️ Klook's choice</span>
+                <span class="flex items-center gap-1 text-emerald-600 font-medium px-2 py-1">🌿 Certified Sustainable Partner</span>
+                <span class="text-gray-500 px-2 py-1 border-l border-gray-200">English</span>
+                <span class="text-gray-500 px-2 py-1 border-l border-gray-200">{group_type}</span>
+            </div>
+            
+            <div class="flex flex-wrap gap-2 mt-3">
+                <span class="bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-md">Meet with guide</span>
+                <span class="bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-md">{duration} Duration</span>
+            </div>
+
+            <!-- Gallery Images (Mockup Placeholders) -->
+            <div class="grid grid-cols-3 grid-rows-2 gap-1 rounded-xl overflow-hidden mt-6 h-[260px] sm:h-[380px]">
+                <div class="row-span-2 col-span-1"><img src="https://picsum.photos/seed/klook1/900/700" class="w-full h-full object-cover" /></div>
+                <img src="https://picsum.photos/seed/klook2/500/340" class="w-full h-full object-cover" />
+                <img src="https://picsum.photos/seed/klook3/500/340" class="w-full h-full object-cover" />
+                <img src="https://picsum.photos/seed/klook4/500/340" class="w-full h-full object-cover" />
+                <div class="relative">
+                    <img src="https://picsum.photos/seed/klook5/500/340" class="w-full h-full object-cover" />
+                </div>
+            </div>
+
+            <!-- Main Content Area -->
+            <div class="flex flex-col lg:flex-row gap-6 mt-6">
+                <!-- Left Column -->
+                <div class="flex-1 min-w-0">
+                    
+                    <div class="bg-orange-50 border border-orange-100 rounded-xl p-5 flex items-start justify-between gap-4">
+                        <div>
+                            <ul class="space-y-2 text-sm text-gray-800">
+                                {hl_html}
+                            </ul>
+                        </div>
+                        <div class="text-3xl hidden sm:block">👍</div>
+                    </div>
+                    
+                    <div class="flex flex-wrap gap-2 mt-4">
+                        {sp_html}
+                    </div>
+
+                    <section class="mt-10">
+                        <div class="flex items-center gap-2 mb-4"><span class="w-1 h-5 bg-orange-500 rounded-sm"></span><h2 class="text-lg font-bold">What to expect</h2></div>
+                        <p class="text-sm text-gray-700 leading-relaxed">{wte}</p>
+                        <div class="mt-4 rounded-xl overflow-hidden"><img src="https://picsum.photos/seed/klook6/900/400" class="w-full h-[280px] object-cover" /><p class="text-xs text-gray-500 mt-2">▲ {attractions}</p></div>
+                    </section>
+
+                    <section class="mt-10">
+                        <div class="flex items-center gap-2 mb-4"><span class="w-1 h-5 bg-orange-500 rounded-sm"></span><h2 class="text-lg font-bold">What's included / excluded</h2></div>
+                        <div class="grid sm:grid-cols-2 gap-4 text-sm bg-gray-50 p-5 rounded-xl border border-gray-100">
+                            <div>
+                                <p class="font-medium text-gray-900 mb-2 flex items-center gap-1.5"><span class="text-emerald-500 font-bold">✓</span> Included</p>
+                                <ul class="space-y-1 text-gray-700 list-disc list-inside">
+                                    {inc_html}
+                                </ul>
+                            </div>
+                            <div>
+                                <p class="font-medium text-gray-900 mb-2 flex items-center gap-1.5"><span class="text-red-500 font-bold">✕</span> Excluded</p>
+                                <ul class="space-y-1 text-gray-700 list-disc list-inside">
+                                    {exc_html}
+                                </ul>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="mt-10 mb-8">
+                        <div class="flex items-center gap-2 mb-4"><span class="w-1 h-5 bg-orange-500 rounded-sm"></span><h2 class="text-lg font-bold">Good to know</h2></div>
+                        <div class="text-sm text-gray-700 space-y-2">
+                            <p><span class="font-medium text-gray-900">Child policy: </span>{res.get('child_policy', 'TBC')}</p>
+                            <p><span class="font-medium text-gray-900">Accessibility: </span>{res.get('accessibility', 'TBC')}</p>
+                            <p><span class="font-medium text-gray-900">Cancellation: </span>{pol.get('cancellation', 'TBC')}</p>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Right Sidebar -->
+                <div class="w-full lg:w-[300px] shrink-0 space-y-4">
+                    <div class="border border-gray-200 rounded-xl p-4 lg:sticky lg:top-4 bg-white shadow-sm">
+                        <p class="text-xs text-gray-500">From</p>
+                        <p class="text-2xl font-bold text-gray-900">{currency} {adult_price}</p>
+                        <button class="w-full bg-orange-500 hover:bg-orange-600 text-white font-medium text-sm py-2.5 rounded-lg mt-3">Select options</button>
+                    </div>
+
+                    <div class="border border-gray-200 rounded-xl p-4 bg-white shadow-sm">
+                        <h3 class="font-semibold text-gray-900">Package details</h3>
+                        <div class="flex flex-wrap gap-2 mt-3">
+                            <span class="text-xs border border-gray-200 rounded px-2 py-1 text-gray-600">Book now, pay later</span>
+                            <span class="text-xs border border-gray-200 rounded px-2 py-1 text-gray-600">Free cancellation</span>
+                        </div>
+                        
+                        <div class="mt-6">
+                            <p class="font-semibold text-gray-900 mb-3">Itinerary</p>
+                            <div class="flex gap-2 text-sm mb-4">
+                                <p>📍 <span class="font-medium">{start_time}</span> · Departure from {start_loc}</p>
+                            </div>
+                            
+                            {seg_html}
+                            
+                            <div class="flex gap-2 text-sm mt-4">
+                                <p>🏁 <span class="font-medium">{end_time}</span> · End at {end_loc}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return html_template
+
 
 # --- IMPROVED MERCHANT RISK LOGIC (V5 - AUTO-RETRY & MATH RULES) ---
 def validate_merchant_risk(text, url, keys):
@@ -1540,20 +1353,11 @@ def render_output(json_text, url_input=None):
             
         with c2:
             st.subheader("🖥️ Klook UI Preview")
-            st.info("Render the extracted data in a live React frontend mockup.")
+            st.info("Render the extracted data perfectly, without React crashing.")
             if st.button("👁️ Generate Klook-Style Preview", use_container_width=True):
-                # Wrap payload in an array as the React code expects it
-                payload_array = [extension_payload]
-                
-                # SAFE INJECTION: Convert to JSON string, then escape < to prevent script breaking
-                safe_json_str = json.dumps(payload_array)
-                safe_json_str = safe_json_str.replace('<', '\\u003c')
-                
-                # Inject JSON into the template
-                final_html = REACT_FRONTEND_TEMPLATE.replace("__INJECT_JSON_HERE__", safe_json_str)
-                
-                # Render the HTML in an iframe (Height 850px gives a great view)
-                components.html(final_html, height=850, scrolling=True)
+                # Generate the purely static HTML natively from Python
+                html_code = generate_static_html_preview(extension_payload)
+                components.html(html_code, height=850, scrolling=True)
 
 
 # --- SMART ROTATION (FIXED ERROR EXPOSURE) ---
