@@ -1514,7 +1514,7 @@ with t4:
         for i, img_url in enumerate(st.session_state['scraped_images']):
             with cols[i % 5]:
                 try:
-                    st.image(img_url, use_column_width=True)
+                    st.image(img_url, use_container_width=True)
                     if st.checkbox("Select", key=f"img_{i}"):
                         selected_scraped.append(img_url)
                 except Exception:
@@ -1582,7 +1582,7 @@ with t4:
         for item in st.session_state['processed_images_data']:
             c1, c2 = st.columns([1, 2])
             with c1:
-                st.image(item["b_img"], caption=item["fname"], use_column_width=True)
+                st.image(item["b_img"], caption=item["fname"], use_container_width=True)
             with c2:
                 with st.container(border=True):
                     ow = item.get("orig_w", 0)
