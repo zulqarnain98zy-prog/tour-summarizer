@@ -782,6 +782,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - **Format:** Use HH:MM format (24-hour clock).
     - **NARRATIVE ITINERARIES:** If the itinerary is written as a story without times, YOU MUST STILL CREATE MULTIPLE SEGMENTS (at least 4 to 6). Extract every major location mentioned (e.g., Harbour Bridge, The Rocks, Bondi Beach, Watsons Bay) as its own separate segment in the array. 
     - **No Lazy Summaries:** Do NOT group the tour into one generic segment like "City Tour". Fully populate the "name" and "details" for each location from the story. If no time is provided, set the "time" field to "TBC".
+    - **Opening Hours:** If a segment represents a specific attraction, venue, or point of interest that is likely to have an official website, you MUST search the text for its opening hours and include them in the 'opening_hours' field. If the hours are not mentioned in the text, use your knowledge to provide the typical opening hours for that attraction.
     
     **INCLUSIONS EXTRACTION (CRITICAL):**
     - FIRST, you MUST scan the entire text for sections titled "Inclusions", "Included", "What's Included", "Includes", "Package Details", or similar lists.
