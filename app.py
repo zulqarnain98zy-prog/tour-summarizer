@@ -739,6 +739,41 @@ Hot Spring, Beach, Yoga, Meditation,
 City, Countryside, Night, Shopping, Sightseeing, Photography, Self-guided, Shore Excursion, Adventure, Discovery, Backstreets, Hidden Gems
 """
 
+# --- NEW: OPENING HOURS FORMATTER FUNCTION ---
+def format_opening_hours(text, api_key):
+    model_name = get_working_model_name(api_key)
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name)
+    
+    prompt = """
+    You are a strict data formatter. Take the raw opening hours text provided by the user and convert it into the following exact pipe-separated format. 
+
+    RULES:
+    1. DAYS: You MUST ONLY use these exact terms: Mon, Tue, Wed, Thu, Fri, Sat, Sunday. Group days with the same hours together, separated by commas.
+    2. TIMES: Use strict 24-hour format (e.g., 09:00-18:00). If it is open 24 hours, write EXACTLY "Open all day". If closed, write EXACTLY "Closed all day".
+    3. DATES: For special holiday or seasonal dates, use strict YYYY-MM-DD format.
+    4. LAST ENTRY: If a last entry time is mentioned, include it in 24-hour format. If not mentioned, write "None".
+    5. DETAILS: Summarize any additional rules (e.g., "Closed on Christmas") into a single paragraph at the bottom.
+
+    OUTPUT FORMAT TEMPLATE:
+    Regular | [Days] | [Time or Status] | [Last Entry]
+    Special | [Date or Date Range] | [Time or Status] | [Last Entry]
+    Details | [Any additional text rules]
+
+    EXAMPLE OUTPUT:
+    Regular | Mon, Tue, Wed, Thu | 14:00-23:00 | 22:00
+    Regular | Fri, Sat, Sunday | 16:00-23:00 | 22:00
+    Special | 2026-12-25 | Closed all day | None
+    Details | The museum observes restricted hours during Ramadan. Last entry is strictly 1 hour before closing.
+
+    INPUT TEXT:
+    """
+    try:
+        response = model.generate_content(prompt + sanitize_text(text))
+        return response.text.strip()
+    except Exception as e:
+        return f"Error formatting opening hours: {str(e)}"
+
 # --- GEMINI CALLS (UPDATED PROMPT) ---
 def call_gemini_json_summary(text, api_key, target_lang="English"):
     model_name = get_working_model_name(api_key)
@@ -782,7 +817,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - **Format:** Use HH:MM format (24-hour clock).
     - **NARRATIVE ITINERARIES:** If the itinerary is written as a story without times, YOU MUST STILL CREATE MULTIPLE SEGMENTS (at least 4 to 6). Extract every major location mentioned (e.g., Harbour Bridge, The Rocks, Bondi Beach, Watsons Bay) as its own separate segment in the array. 
     - **No Lazy Summaries:** Do NOT group the tour into one generic segment like "City Tour". Fully populate the "name" and "details" for each location from the story. If no time is provided, set the "time" field to "TBC".
-    - **Opening Hours:** If a segment represents a specific attraction, venue, or point of interest that is likely to have an official website, you MUST search the text for its opening hours and include them in the 'opening_hours' field. If the hours are not mentioned in the text, use your knowledge to provide the typical opening hours for that attraction.
+    - **Opening Hours:** If you find explicit opening hours for an attraction, extract the raw messy text into the 'opening_hours' field. If none are found, leave it blank "". Do not invent them.
     
     **INCLUSIONS EXTRACTION (CRITICAL):**
     - FIRST, you MUST scan the entire text for sections titled "Inclusions", "Included", "What's Included", "Includes", "Package Details", or similar lists.
@@ -842,7 +877,8 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
             "main_attractions": "Tour Name",
             "highlights": ["Highlight 1 (10-12 words)", "Highlight 2 (10-12 words)", "Highlight 3", "Highlight 4"],
             "what_to_expect": "Strictly 100-120 words and max 800 chars. No final full stop",
-            "selling_points": ["Tag 1", "Tag 2"]
+            "selling_points": ["Tag 1", "Tag 2"],
+            "opening_hours": "Extracted raw opening hours or blank"
         }},
         "klook_itinerary": {{
             "start": {{ "time": "09:00", "location": "Meeting Point" }},
@@ -1179,6 +1215,33 @@ def render_output(json_text, url_input=None):
                         st.rerun()
         
         st.write(wte_text)
+
+        # 💥 NEW OPENING HOURS UI BLOCK 💥
+        st.divider()
+        st.subheader("⏰ Opening Hours & Details")
+        
+        existing_hours = info.get("opening_hours", "")
+        
+        raw_hours_input = st.text_area(
+            "Paste raw opening hours text from the merchant website here:", 
+            value=existing_hours, 
+            height=150,
+            help="Paste messy text here and click format, or edit the already formatted text."
+        )
+        
+        if st.button("✨ Format Opening Hours", type="primary"):
+            keys = get_all_keys()
+            if keys and raw_hours_input:
+                with st.spinner("Standardizing Opening Hours..."):
+                    formatted_hours = format_opening_hours(raw_hours_input, random.choice(keys))
+                    
+                    data_obj = json.loads(st.session_state['gen_result'])
+                    data_obj["basic_info"]["opening_hours"] = formatted_hours
+                    st.session_state['gen_result'] = json.dumps(data_obj)
+                    
+                    st.rerun()
+            elif not raw_hours_input:
+                st.warning("⚠️ Please paste some text first.")
 
     with tabs[1]:
         itin = data.get("klook_itinerary", {})
