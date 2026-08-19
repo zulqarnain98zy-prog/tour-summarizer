@@ -743,16 +743,22 @@ City, Countryside, Night, Shopping, Sightseeing, Photography, Self-guided, Shore
 def ai_search_opening_hours(attraction_name, location, api_key):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name)
+    
+    # Enable explicit Google Search Grounding to pull live data
+    try:
+        model = genai.GenerativeModel(model_name, tools="google_search_retrieval")
+    except:
+        # Fallback just in case you are using an older version of the SDK
+        model = genai.GenerativeModel(model_name)
     
     prompt = f"""
     You are a travel data researcher. 
-    Find the typical regular opening hours for the following attraction:
+    Find the official, most up-to-date regular opening hours for the following attraction.
     Attraction: {attraction_name}
     Location: {location}
     
-    Return ONLY the raw opening hours text. Do not include introductory sentences. 
-    If you are unsure or the attraction is generic, return exactly: "Could not find reliable opening hours. Please enter manually."
+    Return ONLY the raw opening hours text (e.g., Saturday-Thursday: 9:00 AM - 11:00 PM, Friday: 2:00 PM - 11:00 PM).
+    Do not include introductory sentences or conversational filler. Give the most accurate, widely known hours for this tourist site.
     """
     try:
         response = model.generate_content(prompt)
