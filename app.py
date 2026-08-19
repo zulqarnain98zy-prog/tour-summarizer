@@ -739,27 +739,31 @@ Hot Spring, Beach, Yoga, Meditation,
 City, Countryside, Night, Shopping, Sightseeing, Photography, Self-guided, Shore Excursion, Adventure, Discovery, Backstreets, Hidden Gems
 """
 
-# --- NEW: AI OPENING HOURS SEARCH ---
+# --- NEW: AI OPENING HOURS SEARCH WITH SOURCE ATTRIBUTION ---
 def ai_search_opening_hours(attraction_name, location, api_key):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     
-    # Enable explicit Google Search Grounding to pull live data
     try:
-        # 💥 CHANGE THIS LINE TO "google_search" 💥
         model = genai.GenerativeModel(model_name, tools="google_search")
     except:
-        # Fallback just in case you are using an older version of the SDK
         model = genai.GenerativeModel(model_name)
     
     prompt = f"""
     You are a travel data researcher. 
-    Find the official, most up-to-date regular opening hours for the following attraction.
+    Find the official, most up-to-date regular opening hours for the following attraction:
     Attraction: {attraction_name}
     Location: {location}
     
-    Return ONLY the raw opening hours text (e.g., Saturday-Thursday: 9:00 AM - 11:00 PM, Friday: 2:00 PM - 11:00 PM).
-    Do not include introductory sentences or conversational filler. Give the most accurate, widely known hours for this tourist site.
+    STRICT REQUIREMENTS:
+    1. SOURCE PRIORITY: Prioritize verified information from official websites, government tourism boards (e.g., Visit Saudi, Visit Singapore), or reputable global OTAs (e.g., TripAdvisor, GetYourGuide, Viator, Trip.com, Google Maps).
+    2. CONTENT: Return the raw opening hours schedule.
+    3. SOURCE ATTRIBUTION: At the very bottom on a new line, explicitly state the primary source you retrieved this information from in this exact format:
+       Source: [Name of Source/Website]
+    
+    Example Output:
+    Saturday - Thursday: 09:00 AM - 11:00 PM, Friday: 02:00 PM - 11:00 PM
+    Source: VisitSaudi.com
     """
     try:
         response = model.generate_content(prompt)
