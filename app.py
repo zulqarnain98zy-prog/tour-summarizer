@@ -739,6 +739,27 @@ Hot Spring, Beach, Yoga, Meditation,
 City, Countryside, Night, Shopping, Sightseeing, Photography, Self-guided, Shore Excursion, Adventure, Discovery, Backstreets, Hidden Gems
 """
 
+# --- NEW: AI OPENING HOURS SEARCH ---
+def ai_search_opening_hours(attraction_name, location, api_key):
+    model_name = get_working_model_name(api_key)
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name)
+    
+    prompt = f"""
+    You are a travel data researcher. 
+    Find the typical regular opening hours for the following attraction:
+    Attraction: {attraction_name}
+    Location: {location}
+    
+    Return ONLY the raw opening hours text. Do not include introductory sentences. 
+    If you are unsure or the attraction is generic, return exactly: "Could not find reliable opening hours. Please enter manually."
+    """
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        return f"Error finding hours: {str(e)}"
+
 # --- NEW: OPENING HOURS FORMATTER FUNCTION ---
 def format_opening_hours(text, api_key):
     model_name = get_working_model_name(api_key)
@@ -1220,28 +1241,54 @@ def render_output(json_text, url_input=None):
         st.divider()
         st.subheader("⏰ Opening Hours & Details")
         
-        existing_hours = info.get("opening_hours", "")
-        
+        # Initialize session state for the text area
+        if 'raw_hours_input' not in st.session_state:
+            st.session_state['raw_hours_input'] = info.get("opening_hours", "")
+
         raw_hours_input = st.text_area(
             "Paste raw opening hours text from the merchant website here:", 
-            value=existing_hours, 
+            value=st.session_state['raw_hours_input'], 
             height=150,
-            help="Paste messy text here and click format, or edit the already formatted text."
+            help="Paste messy text here, or click the AI button to search automatically."
         )
         
-        if st.button("✨ Format Opening Hours", type="primary"):
-            keys = get_all_keys()
-            if keys and raw_hours_input:
-                with st.spinner("Standardizing Opening Hours..."):
-                    formatted_hours = format_opening_hours(raw_hours_input, random.choice(keys))
-                    
-                    data_obj = json.loads(st.session_state['gen_result'])
-                    data_obj["basic_info"]["opening_hours"] = formatted_hours
-                    st.session_state['gen_result'] = json.dumps(data_obj)
-                    
-                    st.rerun()
-            elif not raw_hours_input:
-                st.warning("⚠️ Please paste some text first.")
+        # Sync manual typing with session state
+        if raw_hours_input != st.session_state['raw_hours_input']:
+            st.session_state['raw_hours_input'] = raw_hours_input
+
+        c_btn1, c_btn2 = st.columns([1, 1])
+        
+        with c_btn1:
+            if st.button("🤖 AI Search Opening Hours"):
+                keys = get_all_keys()
+                attraction_name = info.get("main_attractions", "")
+                location = info.get("city_country", "")
+                
+                if keys and attraction_name:
+                    with st.spinner(f"Searching hours for {attraction_name}..."):
+                        found_hours = ai_search_opening_hours(attraction_name, location, random.choice(keys))
+                        st.session_state['raw_hours_input'] = found_hours
+                        st.rerun()
+                else:
+                    st.warning("⚠️ No attraction name found to search for.")
+
+        with c_btn2:
+            if st.button("✨ Format Opening Hours", type="primary"):
+                keys = get_all_keys()
+                if keys and st.session_state['raw_hours_input']:
+                    with st.spinner("Standardizing Opening Hours..."):
+                        formatted_hours = format_opening_hours(st.session_state['raw_hours_input'], random.choice(keys))
+                        
+                        # Save to master JSON
+                        data_obj = json.loads(st.session_state['gen_result'])
+                        data_obj["basic_info"]["opening_hours"] = formatted_hours
+                        st.session_state['gen_result'] = json.dumps(data_obj)
+                        
+                        # Update the text area to show the formatted result
+                        st.session_state['raw_hours_input'] = formatted_hours
+                        st.rerun()
+                elif not st.session_state['raw_hours_input']:
+                    st.warning("⚠️ Please search or paste some text first.")
 
     with tabs[1]:
         itin = data.get("klook_itinerary", {})
