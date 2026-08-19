@@ -751,19 +751,16 @@ def ai_search_opening_hours(attraction_name, location, api_key):
     
     prompt = f"""
     You are a travel data researcher. 
-    Find the official, most up-to-date regular opening hours for the following attraction:
+    Find the official, weekly recurring opening hours schedule for the following attraction:
     Attraction: {attraction_name}
     Location: {location}
     
     STRICT REQUIREMENTS:
-    1. SOURCE PRIORITY: Prioritize verified information from official websites, government tourism boards (e.g., Visit Saudi, Visit Singapore), or reputable global OTAs (e.g., TripAdvisor, GetYourGuide, Viator, Trip.com, Google Maps).
-    2. CONTENT: Return the raw opening hours schedule.
-    3. SOURCE ATTRIBUTION: At the very bottom on a new line, explicitly state the primary source you retrieved this information from in this exact format:
+    1. IGNORE REAL-TIME STATUS: Do NOT tell me if the attraction is "Currently Closed" or "Open Now". I ONLY want the general weekly schedule (e.g., Monday-Sunday times).
+    2. SOURCE PRIORITY: Prioritize verified information from official websites, government tourism boards, or reputable global OTAs.
+    3. CONTENT: Return ONLY the raw opening hours schedule. Do not include conversational filler.
+    4. SOURCE ATTRIBUTION: At the very bottom on a new line, explicitly state the primary source you retrieved this information from in this exact format:
        Source: [Name of Source/Website]
-    
-    Example Output:
-    Saturday - Thursday: 09:00 AM - 11:00 PM, Friday: 02:00 PM - 11:00 PM
-    Source: VisitSaudi.com
     """
     try:
         response = model.generate_content(prompt)
@@ -1248,7 +1245,7 @@ def render_output(json_text, url_input=None):
         
         st.write(wte_text)
 
-        # 💥 NEW OPENING HOURS UI BLOCK 💥
+        # 💥 OPENING HOURS UI BLOCK WITH 3 BUTTONS 💥
         st.divider()
         st.subheader("⏰ Opening Hours & Details")
         
@@ -1267,16 +1264,17 @@ def render_output(json_text, url_input=None):
         if raw_hours_input != st.session_state['raw_hours_input']:
             st.session_state['raw_hours_input'] = raw_hours_input
 
-        c_btn1, c_btn2 = st.columns([1, 1])
+        attraction_name = info.get("main_attractions", "")
+        location = info.get("city_country", "")
+
+        # 3 Perfect Columns for our 3 Buttons
+        c_btn1, c_btn2, c_btn3 = st.columns([1, 1, 1])
         
         with c_btn1:
-            if st.button("🤖 AI Search Opening Hours"):
+            if st.button("🤖 AI Search Opening Hours", use_container_width=True):
                 keys = get_all_keys()
-                attraction_name = info.get("main_attractions", "")
-                location = info.get("city_country", "")
-                
                 if keys and attraction_name:
-                    with st.spinner(f"Searching hours for {attraction_name}..."):
+                    with st.spinner(f"Searching schedule for {attraction_name}..."):
                         found_hours = ai_search_opening_hours(attraction_name, location, random.choice(keys))
                         st.session_state['raw_hours_input'] = found_hours
                         st.rerun()
@@ -1284,7 +1282,14 @@ def render_output(json_text, url_input=None):
                     st.warning("⚠️ No attraction name found to search for.")
 
         with c_btn2:
-            if st.button("✨ Format Opening Hours", type="primary"):
+            # Direct Google Search Link Button
+            search_query = f"{attraction_name} {location} opening hours".strip()
+            encoded_search = urllib.parse.quote(search_query)
+            google_search_url = f"https://www.google.com/search?q={encoded_search}"
+            st.link_button("🌐 Google Search Hours", google_search_url, use_container_width=True)
+
+        with c_btn3:
+            if st.button("✨ Format Opening Hours", type="primary", use_container_width=True):
                 keys = get_all_keys()
                 if keys and st.session_state['raw_hours_input']:
                     with st.spinner("Standardizing Opening Hours..."):
