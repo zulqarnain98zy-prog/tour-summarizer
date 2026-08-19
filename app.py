@@ -746,7 +746,8 @@ def ai_search_opening_hours(attraction_name, location, api_key):
     
     # Enable explicit Google Search Grounding to pull live data
     try:
-        model = genai.GenerativeModel(model_name, tools="google_search_retrieval")
+        # 💥 CHANGE THIS LINE TO "google_search" 💥
+        model = genai.GenerativeModel(model_name, tools="google_search")
     except:
         # Fallback just in case you are using an older version of the SDK
         model = genai.GenerativeModel(model_name)
