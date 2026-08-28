@@ -803,6 +803,53 @@ def format_opening_hours(text, api_key):
     except Exception as e:
         return f"Error formatting opening hours: {str(e)}"
 
+# --- BRAND NEW: AI ADDRESS SEARCH ---
+def ai_search_address(attraction_name, location, api_key):
+    model_name = get_working_model_name(api_key)
+    genai.configure(api_key=api_key)
+    try:
+        model = genai.GenerativeModel(model_name, tools="google_search")
+    except:
+        model = genai.GenerativeModel(model_name)
+    
+    prompt = f"""
+    Find the official location details for:
+    Attraction: {attraction_name}
+    Location: {location}
+    
+    Return exactly three lines of text, using this exact prefix format. Do not include any other conversational text.
+    NAME: [The official, bold-friendly name of the building or attraction]
+    ADDRESS: [The full physical address]
+    MAP: [A valid Google Maps URL, preferably a short link]
+    """
+    try:
+        response = model.generate_content(prompt)
+        return response.text.strip()
+    except Exception as e:
+        return f"Error finding address: {str(e)}"
+
+# --- BRAND NEW: ADDRESS FORMATTER FUNCTION ---
+def format_address(text, api_key):
+    model_name = get_working_model_name(api_key)
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name)
+    
+    prompt = """
+    Extract the Name, Address, and Map link from the following text and format it strictly as:
+    NAME: [Name]
+    ADDRESS: [Full Address]
+    MAP: [Google Maps Link]
+    
+    If a map link is not found, generate a Google Maps search URL based on the name and address. Do not include any conversational filler.
+    
+    Raw Text:
+    """
+    try:
+        response = model.generate_content(prompt + sanitize_text(text))
+        return response.text.strip()
+    except Exception as e:
+        return f"Error formatting address: {str(e)}"
+
 # --- GEMINI CALLS (UPDATED PROMPT) ---
 def call_gemini_json_summary(text, api_key, target_lang="English"):
     model_name = get_working_model_name(api_key)
@@ -1304,6 +1351,65 @@ def render_output(json_text, url_input=None):
                         st.session_state['raw_hours_input'] = formatted_hours
                         st.rerun()
                 elif not st.session_state['raw_hours_input']:
+                    st.warning("⚠️ Please search or paste some text first.")
+
+        # 💥 BRAND NEW: ADDRESS & LOCATION UI BLOCK 💥
+        st.divider()
+        st.subheader("📍 Address & Location")
+
+        if 'raw_address_input' not in st.session_state:
+            # We initialize from the root data dictionary, matching autofill.js logic
+            st.session_state['raw_address_input'] = data.get("address_raw", "")
+
+        raw_address_input = st.text_area(
+            "Search or paste the attraction's location details here:", 
+            value=st.session_state['raw_address_input'], 
+            height=100,
+            help="Format should be NAME:, ADDRESS:, MAP:"
+        )
+        
+        # Sync manual typing with session state
+        if raw_address_input != st.session_state['raw_address_input']:
+            st.session_state['raw_address_input'] = raw_address_input
+            
+        c_btn_a1, c_btn_a2, c_btn_a3 = st.columns([1, 1, 1])
+        
+        with c_btn_a1:
+            if st.button("🤖 AI Search Address", use_container_width=True):
+                keys = get_all_keys()
+                if keys and attraction_name:
+                    with st.spinner(f"Searching location for {attraction_name}..."):
+                        found_address = ai_search_address(attraction_name, location, random.choice(keys))
+                        st.session_state['raw_address_input'] = found_address
+                        
+                        # Save into the ROOT of the payload, precisely where autofill.js looks
+                        data_obj = json.loads(st.session_state['gen_result'])
+                        data_obj["address_raw"] = found_address
+                        st.session_state['gen_result'] = json.dumps(data_obj)
+                        st.rerun()
+                else:
+                    st.warning("⚠️ No attraction name found to search for.")
+
+        with c_btn_a2:
+            search_query_addr = f"{attraction_name} {location} official address google maps".strip()
+            encoded_search_addr = urllib.parse.quote(search_query_addr)
+            google_search_url_addr = f"https://www.google.com/search?q={encoded_search_addr}"
+            st.link_button("🌐 Google Search Map", google_search_url_addr, use_container_width=True)
+
+        with c_btn_a3:
+            if st.button("✨ Format Address", type="primary", use_container_width=True):
+                keys = get_all_keys()
+                if keys and st.session_state['raw_address_input']:
+                    with st.spinner("Standardizing Address format..."):
+                        formatted_addr = format_address(st.session_state['raw_address_input'], random.choice(keys))
+                        st.session_state['raw_address_input'] = formatted_addr
+                        
+                        # Save into the ROOT of the payload
+                        data_obj = json.loads(st.session_state['gen_result'])
+                        data_obj["address_raw"] = formatted_addr
+                        st.session_state['gen_result'] = json.dumps(data_obj)
+                        st.rerun()
+                elif not st.session_state['raw_address_input']:
                     st.warning("⚠️ Please search or paste some text first.")
 
     with tabs[1]:
