@@ -530,9 +530,9 @@ def extract_data_from_url(url):
                 browser={'browser': 'chrome','platform': 'windows','desktop': True}
             )
             scraper.mount('https://', LegacySSLAdapter())
-            response = scraper.get(url, headers=headers, timeout=30) 
+            response = scraper.get(url, headers=headers, timeout=15) 
         except Exception:
-            response = requests.get(url, headers=headers, timeout=30, verify=False) 
+            response = requests.get(url, headers=headers, timeout=15, verify=False) 
 
         if response.status_code == 403:
             return None, "⛔ **Access Denied (403):** This website has a strong firewall. Please copy the text manually and use the **'✍🏻 Text Summary'** tab."
@@ -739,117 +739,6 @@ Hot Spring, Beach, Yoga, Meditation,
 City, Countryside, Night, Shopping, Sightseeing, Photography, Self-guided, Shore Excursion, Adventure, Discovery, Backstreets, Hidden Gems
 """
 
-# --- NEW: AI OPENING HOURS SEARCH WITH SOURCE ATTRIBUTION ---
-def ai_search_opening_hours(attraction_name, location, api_key):
-    model_name = get_working_model_name(api_key)
-    genai.configure(api_key=api_key)
-    
-    try:
-        model = genai.GenerativeModel(model_name, tools="google_search")
-    except:
-        model = genai.GenerativeModel(model_name)
-    
-    prompt = f"""
-    You are a travel data researcher. 
-    Find the official, weekly recurring opening hours schedule for the following attraction:
-    Attraction: {attraction_name}
-    Location: {location}
-    
-    STRICT REQUIREMENTS:
-    1. IGNORE REAL-TIME STATUS: Do NOT tell me if the attraction is "Currently Closed" or "Open Now". I ONLY want the general weekly schedule (e.g., Monday-Sunday times).
-    2. SOURCE PRIORITY: Prioritize verified information from official websites, government tourism boards, or reputable global OTAs.
-    3. CONTENT: Return ONLY the raw opening hours schedule. Do not include conversational filler.
-    4. SOURCE ATTRIBUTION: At the very bottom on a new line, explicitly state the primary source you retrieved this information from in this exact format:
-       Source: [Name of Source/Website]
-    """
-    try:
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        return f"Error finding hours: {str(e)}"
-
-# --- NEW: OPENING HOURS FORMATTER FUNCTION ---
-def format_opening_hours(text, api_key):
-    model_name = get_working_model_name(api_key)
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name)
-    
-    prompt = """
-    You are a strict data formatter. Take the raw opening hours text provided by the user and convert it into the following exact pipe-separated format. 
-
-    RULES:
-    1. DAYS: You MUST ONLY use these exact terms: Mon, Tue, Wed, Thu, Fri, Sat, Sunday. Group days with the same hours together, separated by commas.
-    2. TIMES: Use strict 24-hour format (e.g., 09:00-18:00). If it is open 24 hours, write EXACTLY "Open all day". If closed, write EXACTLY "Closed all day".
-    3. DATES: For special holiday or seasonal dates, use strict YYYY-MM-DD format.
-    4. LAST ENTRY: If a last entry time is mentioned, include it in 24-hour format. If not mentioned, write "None".
-    5. DETAILS: Summarize any additional rules (e.g., "Closed on Christmas") into a single paragraph at the bottom.
-
-    OUTPUT FORMAT TEMPLATE:
-    Regular | [Days] | [Time or Status] | [Last Entry]
-    Special | [Date or Date Range] | [Time or Status] | [Last Entry]
-    Details | [Any additional text rules]
-
-    EXAMPLE OUTPUT:
-    Regular | Mon, Tue, Wed, Thu | 14:00-23:00 | 22:00
-    Regular | Fri, Sat, Sunday | 16:00-23:00 | 22:00
-    Special | 2026-12-25 | Closed all day | None
-    Details | The museum observes restricted hours during Ramadan. Last entry is strictly 1 hour before closing.
-
-    INPUT TEXT:
-    """
-    try:
-        response = model.generate_content(prompt + sanitize_text(text))
-        return response.text.strip()
-    except Exception as e:
-        return f"Error formatting opening hours: {str(e)}"
-
-# --- BRAND NEW: AI ADDRESS SEARCH ---
-def ai_search_address(attraction_name, location, api_key):
-    model_name = get_working_model_name(api_key)
-    genai.configure(api_key=api_key)
-    try:
-        model = genai.GenerativeModel(model_name, tools="google_search")
-    except:
-        model = genai.GenerativeModel(model_name)
-    
-    prompt = f"""
-    Find the official location details for:
-    Attraction: {attraction_name}
-    Location: {location}
-    
-    Return exactly three lines of text, using this exact prefix format. Do not include any other conversational text.
-    NAME: [The official, bold-friendly name of the building or attraction]
-    ADDRESS: [The full physical address]
-    MAP: [A valid Google Maps URL, preferably a short link]
-    """
-    try:
-        response = model.generate_content(prompt)
-        return response.text.strip()
-    except Exception as e:
-        return f"Error finding address: {str(e)}"
-
-# --- BRAND NEW: ADDRESS FORMATTER FUNCTION ---
-def format_address(text, api_key):
-    model_name = get_working_model_name(api_key)
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(model_name)
-    
-    prompt = """
-    Extract the Name, Address, and Map link from the following text and format it strictly as:
-    NAME: [Name]
-    ADDRESS: [Full Address]
-    MAP: [Google Maps Link]
-    
-    If a map link is not found, generate a Google Maps search URL based on the name and address. Do not include any conversational filler.
-    
-    Raw Text:
-    """
-    try:
-        response = model.generate_content(prompt + sanitize_text(text))
-        return response.text.strip()
-    except Exception as e:
-        return f"Error formatting address: {str(e)}"
-
 # --- GEMINI CALLS (UPDATED PROMPT) ---
 def call_gemini_json_summary(text, api_key, target_lang="English"):
     model_name = get_working_model_name(api_key)
@@ -893,7 +782,6 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     - **Format:** Use HH:MM format (24-hour clock).
     - **NARRATIVE ITINERARIES:** If the itinerary is written as a story without times, YOU MUST STILL CREATE MULTIPLE SEGMENTS (at least 4 to 6). Extract every major location mentioned (e.g., Harbour Bridge, The Rocks, Bondi Beach, Watsons Bay) as its own separate segment in the array. 
     - **No Lazy Summaries:** Do NOT group the tour into one generic segment like "City Tour". Fully populate the "name" and "details" for each location from the story. If no time is provided, set the "time" field to "TBC".
-    - **Opening Hours:** If you find explicit opening hours for an attraction, extract the raw messy text into the 'opening_hours' field. If none are found, leave it blank "". Do not invent them.
     
     **INCLUSIONS EXTRACTION (CRITICAL):**
     - FIRST, you MUST scan the entire text for sections titled "Inclusions", "Included", "What's Included", "Includes", "Package Details", or similar lists.
@@ -953,13 +841,12 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
             "main_attractions": "Tour Name",
             "highlights": ["Highlight 1 (10-12 words)", "Highlight 2 (10-12 words)", "Highlight 3", "Highlight 4"],
             "what_to_expect": "Strictly 100-120 words and max 800 chars. No final full stop",
-            "selling_points": ["Tag 1", "Tag 2"],
-            "opening_hours": "Extracted raw opening hours or blank"
+            "selling_points": ["Tag 1", "Tag 2"]
         }},
         "klook_itinerary": {{
             "start": {{ "time": "09:00", "location": "Meeting Point" }},
             "segments": [
-                {{ "type": "Attraction", "time": "10:00", "name": "Name", "details": "Details", "location_search": "Search Term", "ticket_status": "Free/Ticket" }}
+                {{ "type": "Attraction", "time": "10:00", "name": "Name", "details": "Details", "location_search": "Search Term", "ticket_status": "Free/Ticket", "opening_hours": "" }}
             ],
             "end": {{ "time": "17:00", "location": "Drop off" }}
         }},
@@ -984,6 +871,59 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
         return response.text
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
+
+def enrich_itinerary_with_hours(json_str, api_key):
+    """Takes the generated JSON, finds attractions, and uses Gemini to fetch hours."""
+    try:
+        data = json.loads(json_str)
+        segments = data.get("klook_itinerary", {}).get("segments", [])
+        city = data.get("basic_info", {}).get("city_country", "")
+        
+        # Identify segments that need hours (Attractions that don't already have them)
+        segments_to_enrich = []
+        for i, seg in enumerate(segments):
+            if seg.get("type") == "Attraction" and not seg.get("opening_hours"):
+                segments_to_enrich.append({"index": i, "name": seg.get("name"), "search": seg.get("location_search")})
+        
+        if not segments_to_enrich:
+            return json_str # Nothing to do
+            
+        model_name = get_working_model_name(api_key)
+        genai.configure(api_key=api_key)
+        # Use a model capable of web search if possible, or fallback to standard
+        model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+        
+        prompt = f"""
+        Find the typical opening hours for the following attractions in {city}.
+        
+        Target Attractions:
+        {json.dumps(segments_to_enrich)}
+        
+        Return a strict JSON object mapping the 'index' to a concise opening hours string (e.g., "09:00 - 18:00"). If you cannot find or confidently determine the hours, return "Check official site".
+        
+        Example Output Format:
+        {{
+            "0": "10:00 - 17:00",
+            "2": "08:00 - 20:00"
+        }}
+        """
+        
+        response = model.generate_content(prompt)
+        hours_data = json.loads(response.text.strip().replace("```json", "").replace("```", ""))
+        
+        # Inject the hours back into the main data
+        for str_idx, hours in hours_data.items():
+            idx = int(str_idx)
+            if 0 <= idx < len(segments):
+                segments[idx]["opening_hours"] = hours
+                
+        return json.dumps(data)
+        
+    except Exception as e:
+        # If enrichment fails, just return the original JSON so we don't break the app
+        print(f"Enrichment failed: {e}")
+        return json_str
+
 
 # --- REGENERATE DESCRIPTION ONLY ---
 def regenerate_description_only(text, api_key, lang="English"):
@@ -1292,126 +1232,6 @@ def render_output(json_text, url_input=None):
         
         st.write(wte_text)
 
-        # 💥 OPENING HOURS UI BLOCK WITH 3 BUTTONS 💥
-        st.divider()
-        st.subheader("⏰ Opening Hours & Details")
-        
-        # Initialize session state for the text area
-        if 'raw_hours_input' not in st.session_state:
-            st.session_state['raw_hours_input'] = info.get("opening_hours", "")
-
-        raw_hours_input = st.text_area(
-            "Paste raw opening hours text from the merchant website here:", 
-            value=st.session_state['raw_hours_input'], 
-            height=150,
-            help="Paste messy text here, or click the AI button to search automatically."
-        )
-        
-        # Sync manual typing with session state
-        if raw_hours_input != st.session_state['raw_hours_input']:
-            st.session_state['raw_hours_input'] = raw_hours_input
-
-        attraction_name = info.get("main_attractions", "")
-        location = info.get("city_country", "")
-
-        # 3 Perfect Columns for our 3 Buttons
-        c_btn1, c_btn2, c_btn3 = st.columns([1, 1, 1])
-        
-        with c_btn1:
-            if st.button("🤖 AI Search Opening Hours", use_container_width=True):
-                keys = get_all_keys()
-                if keys and attraction_name:
-                    with st.spinner(f"Searching schedule for {attraction_name}..."):
-                        found_hours = ai_search_opening_hours(attraction_name, location, random.choice(keys))
-                        st.session_state['raw_hours_input'] = found_hours
-                        st.rerun()
-                else:
-                    st.warning("⚠️ No attraction name found to search for.")
-
-        with c_btn2:
-            # Direct Google Search Link Button
-            search_query = f"{attraction_name} {location} opening hours".strip()
-            encoded_search = urllib.parse.quote(search_query)
-            google_search_url = f"https://www.google.com/search?q={encoded_search}"
-            st.link_button("🌐 Google Search Hours", google_search_url, use_container_width=True)
-
-        with c_btn3:
-            if st.button("✨ Format Opening Hours", type="primary", use_container_width=True):
-                keys = get_all_keys()
-                if keys and st.session_state['raw_hours_input']:
-                    with st.spinner("Standardizing Opening Hours..."):
-                        formatted_hours = format_opening_hours(st.session_state['raw_hours_input'], random.choice(keys))
-                        
-                        # Save to master JSON
-                        data_obj = json.loads(st.session_state['gen_result'])
-                        data_obj["basic_info"]["opening_hours"] = formatted_hours
-                        st.session_state['gen_result'] = json.dumps(data_obj)
-                        
-                        # Update the text area to show the formatted result
-                        st.session_state['raw_hours_input'] = formatted_hours
-                        st.rerun()
-                elif not st.session_state['raw_hours_input']:
-                    st.warning("⚠️ Please search or paste some text first.")
-
-        # 💥 BRAND NEW: ADDRESS & LOCATION UI BLOCK 💥
-        st.divider()
-        st.subheader("📍 Address & Location")
-
-        if 'raw_address_input' not in st.session_state:
-            # We initialize from the root data dictionary, matching autofill.js logic
-            st.session_state['raw_address_input'] = data.get("address_raw", "")
-
-        raw_address_input = st.text_area(
-            "Search or paste the attraction's location details here:", 
-            value=st.session_state['raw_address_input'], 
-            height=100,
-            help="Format should be NAME:, ADDRESS:, MAP:"
-        )
-        
-        # Sync manual typing with session state
-        if raw_address_input != st.session_state['raw_address_input']:
-            st.session_state['raw_address_input'] = raw_address_input
-            
-        c_btn_a1, c_btn_a2, c_btn_a3 = st.columns([1, 1, 1])
-        
-        with c_btn_a1:
-            if st.button("🤖 AI Search Address", use_container_width=True):
-                keys = get_all_keys()
-                if keys and attraction_name:
-                    with st.spinner(f"Searching location for {attraction_name}..."):
-                        found_address = ai_search_address(attraction_name, location, random.choice(keys))
-                        st.session_state['raw_address_input'] = found_address
-                        
-                        # Save into the ROOT of the payload, precisely where autofill.js looks
-                        data_obj = json.loads(st.session_state['gen_result'])
-                        data_obj["address_raw"] = found_address
-                        st.session_state['gen_result'] = json.dumps(data_obj)
-                        st.rerun()
-                else:
-                    st.warning("⚠️ No attraction name found to search for.")
-
-        with c_btn_a2:
-            search_query_addr = f"{attraction_name} {location} official address google maps".strip()
-            encoded_search_addr = urllib.parse.quote(search_query_addr)
-            google_search_url_addr = f"https://www.google.com/search?q={encoded_search_addr}"
-            st.link_button("🌐 Google Search Map", google_search_url_addr, use_container_width=True)
-
-        with c_btn_a3:
-            if st.button("✨ Format Address", type="primary", use_container_width=True):
-                keys = get_all_keys()
-                if keys and st.session_state['raw_address_input']:
-                    with st.spinner("Standardizing Address format..."):
-                        formatted_addr = format_address(st.session_state['raw_address_input'], random.choice(keys))
-                        st.session_state['raw_address_input'] = formatted_addr
-                        
-                        # Save into the ROOT of the payload
-                        data_obj = json.loads(st.session_state['gen_result'])
-                        data_obj["address_raw"] = formatted_addr
-                        st.session_state['gen_result'] = json.dumps(data_obj)
-                        st.rerun()
-                elif not st.session_state['raw_address_input']:
-                    st.warning("⚠️ Please search or paste some text first.")
-
     with tabs[1]:
         itin = data.get("klook_itinerary", {})
         start = itin.get("start", {})
@@ -1437,13 +1257,20 @@ def render_output(json_text, url_input=None):
             sDet = seg.get('details', '')
             sTicket = seg.get('ticket_status', 'Unknown')
             sLoc = seg.get('location_search', '')
+            
             map_btn = ""
             if sLoc:
                 query = urllib.parse.quote(sLoc)
                 link = f"https://www.google.com/maps/search/?api=1&query={query}"
                 site_query = urllib.parse.quote(f"{sLoc} official website")
                 site_link = f"https://www.google.com/search?q={site_query}"
-                map_btn = f' | <a href="{link}" target="_blank" style="text-decoration:none; color:#2196F3;">📍 Map</a> | <a href="{site_link}" target="_blank" style="text-decoration:none; color:#4CAF50;">🌐 Official Site</a>'
+                
+                # NEW: Add a targeted search link for Opening Hours
+                hours_query = urllib.parse.quote(f"{sLoc} opening hours")
+                hours_link = f"https://www.google.com/search?q={hours_query}"
+                
+                # Include the new link in the map_btn string
+                map_btn = f' | <a href="{link}" target="_blank" style="text-decoration:none; color:#2196F3;">📍 Map</a> | <a href="{site_link}" target="_blank" style="text-decoration:none; color:#4CAF50;">🌐 Official Site</a> | <a href="{hours_link}" target="_blank" style="text-decoration:none; color:#FF9800;">🕒 Search Hours</a>'
             
             icon = "🎡"
             color = "#ff5722"
@@ -1594,7 +1421,7 @@ def render_output(json_text, url_input=None):
 
 
 # --- SMART ROTATION (FIXED ERROR EXPOSURE) ---
-def smart_rotation_wrapper(text, keys, lang="English"):
+def smart_rotation_wrapper(text, keys, lang="English", fetch_hours=False):
     if not keys: return "⚠️ No API keys found."
     
     shuffled_keys = list(keys)
@@ -1630,7 +1457,14 @@ def smart_rotation_wrapper(text, keys, lang="English"):
                     if wte.endswith("."): wte = wte[:-1]
                     d["basic_info"]["what_to_expect"] = wte
                 
-                return json.dumps(d)
+                processed_json = json.dumps(d)
+                
+                # --- NEW ENRICHMENT STEP ---
+                if fetch_hours:
+                    enriched_json = enrich_itinerary_with_hours(processed_json, key)
+                    return enriched_json
+                return processed_json
+                
             except: 
                 pass
             
@@ -1644,6 +1478,7 @@ def smart_rotation_wrapper(text, keys, lang="English"):
 with st.sidebar:
     st.header("⚙️ Settings")
     target_lang = st.selectbox("🌐 Target Language", ["English", "Chinese (Traditional)", "Chinese (Simplified)", "Korean", "Japanese", "Thai", "Vietnamese", "Indonesian"])
+    fetch_hours = st.checkbox("🕒 Auto-fetch Opening Hours (Slower)", value=False)
     st.divider()
 
 t1, t2, t3, t4, t5, t6, t7 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "🛡️ Merchant Screening Tool", "📝 Grammar Check", "🔎 Klook Search"])
@@ -1669,7 +1504,7 @@ with t1:
             st.session_state['raw_text_content'] = data_dict['text'] 
             
             status.write(f"✅ Found {len(data_dict['images'])} images & {len(data_dict['text'])} chars. Calling AI...")
-            result = smart_rotation_wrapper(data_dict['text'], keys, target_lang)
+            result = smart_rotation_wrapper(data_dict['text'], keys, target_lang, fetch_hours)
             
             if "Busy" not in result and "Error" not in result:
                 st.session_state['gen_result'] = result
@@ -1687,7 +1522,7 @@ with t2:
         keys = get_all_keys()
         if not keys: st.error("❌ No Keys"); st.stop()
         st.session_state['raw_text_content'] = raw_text 
-        result = smart_rotation_wrapper(raw_text, keys, target_lang)
+        result = smart_rotation_wrapper(raw_text, keys, target_lang, fetch_hours)
         if "Busy" not in result and "Error" not in result and "Failed" not in result:
             st.session_state['gen_result'] = result
             try:
@@ -1713,7 +1548,7 @@ with t3:
             
             st.session_state['raw_text_content'] = pdf_text 
             status.write(f"✅ Extracted {len(pdf_text)} chars. Calling AI...")
-            result = smart_rotation_wrapper(pdf_text, keys, target_lang)
+            result = smart_rotation_wrapper(pdf_text, keys, target_lang, fetch_hours)
             
             if "Busy" not in result and "Error" not in result and "Failed" not in result:
                 st.session_state['gen_result'] = result
