@@ -846,7 +846,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
         "klook_itinerary": {{
             "start": {{ "time": "09:00", "location": "Meeting Point" }},
             "segments": [
-                {{ "type": "Attraction", "time": "10:00", "name": "Name", "details": "Details", "location_search": "Search Term", "ticket_status": "Free/Ticket", "opening_hours": "" }}
+                {{ "type": "Attraction", "time": "10:00", "name": "Name", "details": "Details", "location_search": "Search Term", "ticket_status": "Free/Ticket" }}
             ],
             "end": {{ "time": "17:00", "location": "Drop off" }}
         }},
@@ -871,59 +871,6 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
         return response.text
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
-
-def enrich_itinerary_with_hours(json_str, api_key):
-    """Takes the generated JSON, finds attractions, and uses Gemini to fetch hours."""
-    try:
-        data = json.loads(json_str)
-        segments = data.get("klook_itinerary", {}).get("segments", [])
-        city = data.get("basic_info", {}).get("city_country", "")
-        
-        # Identify segments that need hours (Attractions that don't already have them)
-        segments_to_enrich = []
-        for i, seg in enumerate(segments):
-            if seg.get("type") == "Attraction" and not seg.get("opening_hours"):
-                segments_to_enrich.append({"index": i, "name": seg.get("name"), "search": seg.get("location_search")})
-        
-        if not segments_to_enrich:
-            return json_str # Nothing to do
-            
-        model_name = get_working_model_name(api_key)
-        genai.configure(api_key=api_key)
-        # Use a model capable of web search if possible, or fallback to standard
-        model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
-        
-        prompt = f"""
-        Find the typical opening hours for the following attractions in {city}.
-        
-        Target Attractions:
-        {json.dumps(segments_to_enrich)}
-        
-        Return a strict JSON object mapping the 'index' to a concise opening hours string (e.g., "09:00 - 18:00"). If you cannot find or confidently determine the hours, return "Check official site".
-        
-        Example Output Format:
-        {{
-            "0": "10:00 - 17:00",
-            "2": "08:00 - 20:00"
-        }}
-        """
-        
-        response = model.generate_content(prompt)
-        hours_data = json.loads(response.text.strip().replace("```json", "").replace("```", ""))
-        
-        # Inject the hours back into the main data
-        for str_idx, hours in hours_data.items():
-            idx = int(str_idx)
-            if 0 <= idx < len(segments):
-                segments[idx]["opening_hours"] = hours
-                
-        return json.dumps(data)
-        
-    except Exception as e:
-        # If enrichment fails, just return the original JSON so we don't break the app
-        print(f"Enrichment failed: {e}")
-        return json_str
-
 
 # --- REGENERATE DESCRIPTION ONLY ---
 def regenerate_description_only(text, api_key, lang="English"):
@@ -1186,25 +1133,24 @@ def render_output(json_text, url_input=None):
     tabs = st.tabs(tab_names)
 
     with tabs[0]:
-        st.subheader(f"🎟️ {info.get('activity_title', 'Activity Title (Not Generated)')}") # Displays the title prominently
+        st.subheader(f"🎟️ {info.get('activity_title', 'Activity Title (Not Generated)')}")
         st.write(f"**📍 Location:** {info.get('city_country')}")
         st.write(f"**⏳ Duration:** {info.get('duration')}")
         st.write(f"**👥 Group:** {info.get('group_type')}")
         
-        # NEW MIN/MAX DISPLAY
         c_min, c_max = st.columns(2)
         c_min.metric("📉 Min Pax", info.get('min_pax', '1'))
         c_max.metric("📈 Max Pax", info.get('max_pax', 'Check with Merchant'))
         
         st.divider()
         st.write("**🌟 Highlights:**")
-        for h in info.get("highlights", []): st.write(f"- {h}")
+        for h in info.get("highlights", []): 
+            st.write(f"- {h}")
         st.write("**🏷️ Selling Points:**")
         st.write(", ".join(info.get("selling_points", [])))
         
         st.divider()
         
-        # WORD COUNT, CHAR COUNT + REGENERATE BUTTON
         wte_text = info.get("what_to_expect", "")
         wte_count = len(wte_text.split())
         wte_chars = len(wte_text)
@@ -1218,13 +1164,11 @@ def render_output(json_text, url_input=None):
         with c2:
             if st.button("🔄 Regenerate Description"):
                 keys = get_all_keys()
-                if keys and st.session_state['raw_text_content']:
+                if keys and st.session_state.get('raw_text_content'):
                     with st.spinner("Rewriting..."):
-                        new_desc = regenerate_description_only(st.session_state['raw_text_content'], random.choice(keys), "English") # Uses current lang default
-                        # Clean last period again just in case
+                        new_desc = regenerate_description_only(st.session_state['raw_text_content'], random.choice(keys), "English")
                         if new_desc.endswith("."): new_desc = new_desc[:-1]
                         
-                        # Update session state
                         data_obj = json.loads(st.session_state['gen_result'])
                         data_obj["basic_info"]["what_to_expect"] = new_desc
                         st.session_state['gen_result'] = json.dumps(data_obj)
@@ -1248,12 +1192,14 @@ def render_output(json_text, url_input=None):
 
     with tabs[2]:
         itin = data.get("klook_itinerary", {})
+        start = itin.get("start", {})
+        end = itin.get("end", {})
         segments = itin.get("segments", [])
-        st.markdown(f"""<div class="timeline-step" style="border-left-color: #4CAF50;"><span class="timeline-time">{start.get('time')}</span><br><span class="timeline-title">🏁 Departure Info</span><br><span style="font-size:0.9rem">{start.get('location')}</span></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="timeline-step" style="border-left-color: #4CAF50;"><span class="timeline-time">{start.get('time', 'TBC')}</span><br><span class="timeline-title">🏁 Departure Info</span><br><span style="font-size:0.9rem">{start.get('location', 'TBC')}</span></div>""", unsafe_allow_html=True)
         for seg in segments:
             sType = seg.get('type', 'Attraction')
             sName = seg.get('name', 'Activity')
-            sTime = seg.get('time', '')
+            sTime = seg.get('time', 'TBC')
             sDet = seg.get('details', '')
             sTicket = seg.get('ticket_status', 'Unknown')
             sLoc = seg.get('location_search', '')
@@ -1264,13 +1210,7 @@ def render_output(json_text, url_input=None):
                 link = f"https://www.google.com/maps/search/?api=1&query={query}"
                 site_query = urllib.parse.quote(f"{sLoc} official website")
                 site_link = f"https://www.google.com/search?q={site_query}"
-                
-                # NEW: Add a targeted search link for Opening Hours
-                hours_query = urllib.parse.quote(f"{sLoc} opening hours")
-                hours_link = f"https://www.google.com/search?q={hours_query}"
-                
-                # Include the new link in the map_btn string
-                map_btn = f' | <a href="{link}" target="_blank" style="text-decoration:none; color:#2196F3;">📍 Map</a> | <a href="{site_link}" target="_blank" style="text-decoration:none; color:#4CAF50;">🌐 Official Site</a> | <a href="{hours_link}" target="_blank" style="text-decoration:none; color:#FF9800;">🕒 Search Hours</a>'
+                map_btn = f' | <a href="{link}" target="_blank" style="text-decoration:none; color:#2196F3;">📍 Map</a> | <a href="{site_link}" target="_blank" style="text-decoration:none; color:#4CAF50;">🌐 Official Site</a>'
             
             icon = "🎡"
             color = "#ff5722"
@@ -1280,7 +1220,7 @@ def render_output(json_text, url_input=None):
             if sTicket and "Free" in sTicket: ticket_badge = f" <span style='background:#E8F5E9; color:#2E7D32; padding:2px 6px; border-radius:4px; font-size:0.8rem'>🆓 {sTicket}</span>"
             elif sTicket and "Unknown" not in sTicket: ticket_badge = f" <span style='background:#FFF3E0; color:#EF6C00; padding:2px 6px; border-radius:4px; font-size:0.8rem'>🎫 {sTicket}</span>"
             st.markdown(f"""<div class="timeline-step" style="border-left-color: {color};"><span class="timeline-time">{sTime}</span> <br><span class="timeline-title">{icon} {sType}: {sName}</span> {ticket_badge} {map_btn}<br><span style="font-size:0.9rem; color:#666;">{sDet}</span></div>""", unsafe_allow_html=True)
-        st.markdown(f"""<div class="timeline-step" style="border-left-color: #F44336;"><span class="timeline-time">{end.get('time')}</span><br><span class="timeline-title">🏁 Return Info</span><br><span style="font-size:0.9rem">{end.get('location')}</span></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="timeline-step" style="border-left-color: #F44336;"><span class="timeline-time">{end.get('time', 'TBC')}</span><br><span class="timeline-title">🏁 Return Info</span><br><span style="font-size:0.9rem">{end.get('location', 'TBC')}</span></div>""", unsafe_allow_html=True)
 
     with tabs[3]:
         st.error(f"**Cancellation Policy:** {pol.get('cancellation', '-')}")
@@ -1421,7 +1361,7 @@ def render_output(json_text, url_input=None):
 
 
 # --- SMART ROTATION (FIXED ERROR EXPOSURE) ---
-def smart_rotation_wrapper(text, keys, lang="English", fetch_hours=False):
+def smart_rotation_wrapper(text, keys, lang="English"):
     if not keys: return "⚠️ No API keys found."
     
     shuffled_keys = list(keys)
@@ -1458,11 +1398,6 @@ def smart_rotation_wrapper(text, keys, lang="English", fetch_hours=False):
                     d["basic_info"]["what_to_expect"] = wte
                 
                 processed_json = json.dumps(d)
-                
-                # --- NEW ENRICHMENT STEP ---
-                if fetch_hours:
-                    enriched_json = enrich_itinerary_with_hours(processed_json, key)
-                    return enriched_json
                 return processed_json
                 
             except: 
@@ -1478,7 +1413,6 @@ def smart_rotation_wrapper(text, keys, lang="English", fetch_hours=False):
 with st.sidebar:
     st.header("⚙️ Settings")
     target_lang = st.selectbox("🌐 Target Language", ["English", "Chinese (Traditional)", "Chinese (Simplified)", "Korean", "Japanese", "Thai", "Vietnamese", "Indonesian"])
-    fetch_hours = st.checkbox("🕒 Auto-fetch Opening Hours (Slower)", value=False)
     st.divider()
 
 t1, t2, t3, t4, t5, t6, t7 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "🛡️ Merchant Screening Tool", "📝 Grammar Check", "🔎 Klook Search"])
@@ -1504,7 +1438,7 @@ with t1:
             st.session_state['raw_text_content'] = data_dict['text'] 
             
             status.write(f"✅ Found {len(data_dict['images'])} images & {len(data_dict['text'])} chars. Calling AI...")
-            result = smart_rotation_wrapper(data_dict['text'], keys, target_lang, fetch_hours)
+            result = smart_rotation_wrapper(data_dict['text'], keys, target_lang)
             
             if "Busy" not in result and "Error" not in result:
                 st.session_state['gen_result'] = result
@@ -1522,7 +1456,7 @@ with t2:
         keys = get_all_keys()
         if not keys: st.error("❌ No Keys"); st.stop()
         st.session_state['raw_text_content'] = raw_text 
-        result = smart_rotation_wrapper(raw_text, keys, target_lang, fetch_hours)
+        result = smart_rotation_wrapper(raw_text, keys, target_lang)
         if "Busy" not in result and "Error" not in result and "Failed" not in result:
             st.session_state['gen_result'] = result
             try:
@@ -1548,7 +1482,7 @@ with t3:
             
             st.session_state['raw_text_content'] = pdf_text 
             status.write(f"✅ Extracted {len(pdf_text)} chars. Calling AI...")
-            result = smart_rotation_wrapper(pdf_text, keys, target_lang, fetch_hours)
+            result = smart_rotation_wrapper(pdf_text, keys, target_lang)
             
             if "Busy" not in result and "Error" not in result and "Failed" not in result:
                 st.session_state['gen_result'] = result
