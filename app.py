@@ -105,8 +105,6 @@ if 'product_context' not in st.session_state:
     st.session_state['product_context'] = ""
 if 'raw_text_content' not in st.session_state:
     st.session_state['raw_text_content'] = ""
-if 'merchant_result' not in st.session_state:
-    st.session_state['merchant_result'] = None
 if 'processed_images_data' not in st.session_state:
     st.session_state['processed_images_data'] = []
 
@@ -127,24 +125,24 @@ def romanize_text(text):
 
 # --- STATIC HTML PREVIEW GENERATOR (REPLACES REACT/JSX TO PREVENT CRASHES) ---
 def generate_static_html_preview(data):
-    # Safely extract all dictionaries
     b = data.get("basic_info", {})
     it = data.get("klook_itinerary", {})
-    pol = data.get("policies", {})
-    inc = data.get("inclusions", {})
-    res = data.get("restrictions", {})
-    pri = data.get("pricing", {})
-
-    # Safely extract primitive values
+    packages = data.get("packages", [])
+    
+    # Safely extract primitive values from basic_info
     title = b.get("activity_title", "Generated Activity")
     city = b.get("city_country", "Location")
-    group_type = b.get("group_type", "Join-in")
-    duration = b.get("duration", "TBC")
     wte = b.get("what_to_expect", "")
     attractions = b.get("main_attractions", "")
     
+    # Grab data from the first package as the default display for the UI preview
+    pkg_default = packages[0] if packages else {}
+    group_type = pkg_default.get("group_type", "Join-in")
+    duration = pkg_default.get("duration", "TBC")
+    pri = pkg_default.get("pricing", {})
     currency = pri.get("currency", "USD")
     adult_price = pri.get("adult_price", 0)
+    inc = pkg_default.get("inclusions", {})
     
     # Generate Highlights HTML
     hl_list = b.get("highlights", [])
@@ -160,7 +158,7 @@ def generate_static_html_preview(data):
     else:
         sp_html = ""
 
-    # Generate Inclusions/Exclusions HTML
+    # Generate Inclusions/Exclusions HTML (from first package)
     inc_list = inc.get("included", [])
     if isinstance(inc_list, list):
         inc_html = "".join([f'<li>{i}</li>' for i in inc_list])
@@ -191,7 +189,9 @@ def generate_static_html_preview(data):
     end_loc = it.get("end", {}).get("location", "Drop-off Point")
     end_time = it.get("end", {}).get("time", "TBC")
 
-    # Generate the final HTML String (100% crash proof, native browser rendering)
+    res = data.get("restrictions", {})
+    pol = data.get("policies", {})
+
     html_template = f"""
     <!DOCTYPE html>
     <html lang="en">
@@ -203,7 +203,6 @@ def generate_static_html_preview(data):
     </head>
     <body class="p-6">
         <div class="max-w-[1200px] mx-auto text-gray-900">
-            <!-- Breadcrumb -->
             <nav class="flex flex-wrap items-center gap-1 text-xs text-gray-500 mb-3">
                 <span>Home</span> <span class="mx-1">›</span>
                 <span>{city}</span> <span class="mx-1">›</span>
@@ -225,7 +224,6 @@ def generate_static_html_preview(data):
                 <span class="bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-md">{duration} Duration</span>
             </div>
 
-            <!-- Gallery Images (Mockup Placeholders) -->
             <div class="grid grid-cols-3 grid-rows-2 gap-1 rounded-xl overflow-hidden mt-6 h-[260px] sm:h-[380px]">
                 <div class="row-span-2 col-span-1"><img src="https://picsum.photos/seed/klook1/900/700" class="w-full h-full object-cover" /></div>
                 <img src="https://picsum.photos/seed/klook2/500/340" class="w-full h-full object-cover" />
@@ -236,11 +234,8 @@ def generate_static_html_preview(data):
                 </div>
             </div>
 
-            <!-- Main Content Area -->
             <div class="flex flex-col lg:flex-row gap-6 mt-6">
-                <!-- Left Column -->
                 <div class="flex-1 min-w-0">
-                    
                     <div class="bg-orange-50 border border-orange-100 rounded-xl p-5 flex items-start justify-between gap-4">
                         <div>
                             <ul class="space-y-2 text-sm text-gray-800">
@@ -288,7 +283,6 @@ def generate_static_html_preview(data):
                     </section>
                 </div>
 
-                <!-- Right Sidebar -->
                 <div class="w-full lg:w-[300px] shrink-0 space-y-4">
                     <div class="border border-gray-200 rounded-xl p-4 lg:sticky lg:top-4 bg-white shadow-sm">
                         <p class="text-xs text-gray-500">From</p>
@@ -324,136 +318,6 @@ def generate_static_html_preview(data):
     """
     return html_template
 
-
-# --- IMPROVED MERCHANT RISK LOGIC (V5 - AUTO-RETRY & MATH RULES) ---
-def validate_merchant_risk(text, url, keys):
-    if not keys: return {"error": "No API keys found."}
-    
-    scraped_content = text
-    inferred_name = ""
-    
-    # 1. Automatic "About Us" and Merchant Name Hunting
-    if url:
-        try:
-            scraper = cloudscraper.create_scraper()
-            base_res = scraper.get(url, timeout=15)
-            soup = BeautifulSoup(base_res.content, 'html.parser')
-            
-            title = soup.find('title')
-            if title:
-                inferred_name = title.get_text().split('|')[0].split('-')[0].strip()
-            else:
-                inferred_name = urllib.parse.urlparse(url).netloc.replace("www.", "").split('.')[0].capitalize()
-
-            if not text:
-                target_url = url
-                for link in soup.find_all('a', href=True):
-                    href = link['href'].lower()
-                    if any(w in href for w in ['about', 'company', 'story', 'legal', 'who-we-are']):
-                        target_url = urllib.parse.urljoin(url, link['href'])
-                        break
-                
-                final_res = scraper.get(target_url, timeout=15)
-                final_soup = BeautifulSoup(final_res.content, 'html.parser')
-                for s in final_soup(["script", "style", "noscript"]): s.extract()
-                scraped_content = final_soup.get_text(separator=' ')[:15000]
-        except:
-            pass
-
-    # 2. Whois Check
-    domain_years = "Unknown"
-    if HAS_WHOIS and url:
-        try:
-            domain_name = urllib.parse.urlparse(url).netloc
-            w = whois.whois(domain_name)
-            c_date = w.creation_date[0] if isinstance(w.creation_date, list) else w.creation_date
-            domain_years = (datetime.now() - c_date).days // 365
-        except: pass
-
-    # 3. Gemini Prompt with Advanced Vetting Logic
-    prompt = f"""
-    Analyze this merchant for Klook/GYG onboarding.
-    URL: {url}
-    CONTENT: {scraped_content[:10000]}
-    
-    TASK:
-    1. Categories - Find ALL offerings and classify them STRICTLY into:
-       - 'approve_categories_found': Only use "Attraction tickets", "Recurring shows", "Theme park", "Water park", "Transportation pass".
-       - 'red_flag_categories_found': Only use "Food tours", "Dining experiences", "Private tours", "Walking tours", "Bus/Car/Boat tours", "Hiking & trekking", "ATV & All Wheel Drive", "Air tours", "ATV/All Wheel Drive tours", "Bicycle tours", "Food tours", "Food coupons", "Hop-on Hop-off bus", "Kayaking tours", "Multiday tours", "Outlet tours", "Private transfers", "Railway tours", "Shore excursions", "Ski tours", "Spa/Beauty", "Wifi & SIM".
-       - 'other_categories_found': List ANY other activities they offer not listed above.
-    2. Assess legitimacy (1-100) and provide a 'score_reason'.
-    3. Make a final decision ('Approved' or 'Rejected').
-    4. Provide a 'status_reason' explaining the Approved/Rejected decision.
-    
-    Return JSON:
-    {{
-        "merchant_name": "Extracted Name",
-        "legitimacy_score": 1-100,
-        "score_reason": "Explain why this score was given...",
-        "preferred_categories_found": ["Category 1"],
-        "red_flag_categories_found": ["Category 2"],
-        "other_categories_found": ["Category 3"],
-        "status": "Approved" or "Rejected",
-        "status_reason": "Explain why approved or rejected based on categories...",
-        "red_flags": ["General concern 1"],
-        "strengths": ["Positive 1"],
-        "summary": "Overview"
-    }}
-    """
-    
-    # 4. ROTATION LOOP (Tries keys until one works)
-    shuffled_keys = list(keys)
-    random.shuffle(shuffled_keys)
-    last_error = ""
-
-    for key in shuffled_keys:
-        try:
-            model_name = get_working_model_name(key)
-            genai.configure(api_key=key)
-            model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
-            
-            response = model.generate_content(prompt)
-            
-            # Bulletproof JSON Parsing
-            clean_json = response.text.strip()
-            if clean_json.startswith("```json"): clean_json = clean_json[7:]
-            if clean_json.endswith("```"): clean_json = clean_json[:-3]
-            
-            res_data = json.loads(clean_json.strip())
-            res_data["domain_age"] = domain_years
-            
-            if not res_data.get("merchant_name"): 
-                res_data["merchant_name"] = inferred_name
-                
-            # --- STRICT RULE: MATH-BASED APPROVAL ---
-            pref_list = res_data.get("preferred_categories_found", [])
-            red_list = res_data.get("red_flag_categories_found", [])
-            
-            if not isinstance(pref_list, list): pref_list = []
-            if not isinstance(red_list, list): red_list = []
-            
-            pref_count = len(pref_list)
-            red_count = len(red_list)
-            ai_reason = res_data.get("status_reason", "")
-            
-            if pref_count > red_count:
-                res_data["status"] = "Approved"
-                res_data["status_reason"] = f"Rule Auto-Approval: Found {pref_count} preferred vs {red_count} red-flag verticals. (AI notes: {ai_reason})"
-            elif red_count > pref_count:
-                res_data["status"] = "Rejected"
-                res_data["status_reason"] = f"Rule Auto-Rejection: Found {red_count} red-flag vs {pref_count} preferred verticals. (AI notes: {ai_reason})"
-            else:
-                res_data["status_reason"] = f"Tie-Breaker (AI Decision): Equal categories found ({pref_count}). Reason: {ai_reason}"
-
-            return res_data # Success! Break the loop.
-
-        except Exception as e:
-            last_error = str(e)
-            time.sleep(0.5) # Wait half a second, then try the next key
-            continue 
-            
-    return {"error": f"AI Audit Failed on all keys. Last Error: {last_error}", "merchant_name": inferred_name}
-
 # --- IMAGE RESIZING LOGIC (ENHANCED FOR QUALITY DIAGNOSTICS & BASE64) ---
 def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
     if Image is None: return None, 0, 0, "⚠️ Error: 'Pillow' library missing.", None
@@ -487,7 +351,6 @@ def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
             optimize=True         
         )
         
-        # 💥 NEW: Convert to Base64 for the Extension 💥
         image_bytes = buf.getvalue()
         b64_encoded = base64.b64encode(image_bytes).decode('utf-8')
         b64_string = f"data:image/jpeg;base64,{b64_encoded}"
@@ -561,53 +424,40 @@ def extract_data_from_url(url):
         for script in soup(["script", "style", "noscript", "svg"]): 
             script.extract()
             
-        # --- NEW: EXTRACT HIDDEN CONTACT LINKS & SNEAKY REGEX ---
         hidden_contacts = []
-        
-        # 1. Catch standard hidden links
         for a in soup.find_all('a', href=True):
             href = a['href'].lower()
             if href.startswith('mailto:'): hidden_contacts.append(f"Email: {href.replace('mailto:', '')}")
             if href.startswith('tel:'): hidden_contacts.append(f"Phone: {href.replace('tel:', '')}")
             
-        # 2. Raw HTML Regex (Catches emails hidden inside scripts/JSON before they get deleted!)
         if hasattr(response, 'text'):
             raw_emails = re.findall(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', response.text)
             for e in raw_emails:
                 e = e.lower()
-                # Ignore image files and generic code junk that look like emails
                 if not any(ext in e for ext in ['.png', '.jpg', '.jpeg', '.webp', '.svg', 'sentry', 'w3.org', 'example']):
                     hidden_contacts.append(f"Email: {e}")
-        
-        # --------------------------------------------------------
             
         text = soup.get_text(separator=' \n ')
         lines = (line.strip() for line in text.splitlines())
-        clean_text = '\n'.join(line for line in lines if line)[:100000] 
+        clean_text = '\n'.join(line for line in lines if line)[:35000] 
 
-        # --- NEW: EXTRACT HIDDEN TOOLTIPS & AGE INFO ---
         hidden_tooltips = []
-        # Scan common interactive elements for hidden labels
         for el in soup.find_all(['span', 'i', 'a', 'div', 'button']):
             for attr in ['title', 'aria-label', 'data-tooltip', 'data-content', 'data-original-title']:
                 if el.has_attr(attr) and len(el[attr].strip()) > 0:
-                    # Filter out useless junk like "Close" or "Menu"
                     val = el[attr].strip()
                     if len(val) > 3 and not any(x in val.lower() for x in ['close', 'menu', 'search', 'button']):
                         hidden_tooltips.append(f"Hidden Tooltip: {val}")
-        # -----------------------------------------------
         
         text = soup.get_text(separator=' \n ')
         lines = (line.strip() for line in text.splitlines())
-        clean_text = '\n'.join(line for line in lines if line)[:100000] 
+        clean_text = '\n'.join(line for line in lines if line)[:35000] 
         
-        # --- INJECT CONTACTS & TOOLTIPS FOR THE AI ---
         if hidden_contacts:
             clean_text += "\n\n--- MERCHANT CONTACTS FOUND IN CODE ---\n" + "\n".join(list(set(hidden_contacts)))
             
         if hidden_tooltips:
             clean_text += "\n\n--- HIDDEN TOOLTIPS FOUND IN CODE ---\n" + "\n".join(list(set(hidden_tooltips)))
-        # ---------------------------------------------
         
         return {"text": clean_text, "images": found_images}, None
 
@@ -625,7 +475,7 @@ def extract_text_from_pdf(uploaded_file):
                 for page in pdf.pages:
                     extracted = page.extract_text()
                     if extracted: text += extracted + "\n"
-            if len(text) > 10: return text[:100000]
+            if len(text) > 10: return text[:35000]
         except Exception as e:
             error_log += f"Plumber failed: {str(e)}. "
 
@@ -636,14 +486,14 @@ def extract_text_from_pdf(uploaded_file):
             for page in reader.pages:
                 try: text += page.extract_text() + "\n"
                 except: pass 
-            if len(text) > 10: return text[:100000]
+            if len(text) > 10: return text[:35000]
         except Exception as e:
             error_log += f"PyPDF failed: {str(e)}."
             
     if not text:
         return f"⚠️ Error reading PDF. Please install 'pdfplumber' for better support.\nDetails: {error_log}"
     
-    return text[:100000]
+    return text[:35000]
 
 # --- PDF GENERATOR ---
 def create_pdf(data):
@@ -661,8 +511,9 @@ def create_pdf(data):
     bullet_style = ParagraphStyle('Bullet', parent=styles['BodyText'], leftIndent=20)
 
     info = data.get('basic_info', {})
+    packages = data.get('packages', [])
     story.append(Paragraph(f"{info.get('main_attractions', 'Tour Summary')}", title_style))
-    story.append(Paragraph(f"<b>Location:</b> {info.get('city_country')} | <b>Duration:</b> {info.get('duration')}", body_style))
+    story.append(Paragraph(f"<b>Location:</b> {info.get('city_country')} | <b>Packages Found:</b> {len(packages)}", body_style))
     story.append(Spacer(1, 12))
 
     story.append(Paragraph("✨ Highlights", heading_style))
@@ -686,21 +537,11 @@ def create_pdf(data):
     end = itin.get('end', {})
     story.append(Paragraph(f"<b>{end.get('time', '')}</b> - End at {end.get('location', '')}", body_style))
 
-    inc = data.get('inclusions', {})
-    story.append(Paragraph("✅ Included", heading_style))
-    if inc.get('included'):
-        bullets = [ListItem(Paragraph(x, body_style)) for x in inc.get('included', [])]
-        story.append(ListFlowable(bullets, bulletType='bullet', start='•'))
-    story.append(Paragraph("❌ Excluded", heading_style))
-    if inc.get('excluded'):
-        bullets = [ListItem(Paragraph(x, body_style)) for x in inc.get('excluded', [])]
-        story.append(ListFlowable(bullets, bulletType='bullet', start='•'))
-
     doc.build(story)
     return buffer.getvalue()
 
 
-# --- SMART MODEL FINDER (FIXED WITH MEMORY CACHE) ---
+# --- SMART MODEL FINDER ---
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_working_model_name(api_key):
     genai.configure(api_key=api_key)
@@ -708,7 +549,6 @@ def get_working_model_name(api_key):
         models = genai.list_models()
         available_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
         
-        # Completely removed the dead 1.5 model. Prioritizing 2.5!
         priority_list = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-pro"]
         for pref in priority_list:
             for model in available_models:
@@ -721,7 +561,7 @@ def get_working_model_name(api_key):
 def sanitize_text(text):
     if not text: return ""
     text = text.encode('utf-8', 'ignore').decode('utf-8')
-    return text.replace("\\", "\\\\")[:95000]
+    return text.replace("\\", "\\\\")[:35000]
 
 # --- KLOOK SELLING POINTS LIST ---
 SELLING_POINTS_LIST = """
@@ -739,7 +579,7 @@ Hot Spring, Beach, Yoga, Meditation,
 City, Countryside, Night, Shopping, Sightseeing, Photography, Self-guided, Shore Excursion, Adventure, Discovery, Backstreets, Hidden Gems
 """
 
-# --- GEMINI CALLS (UPDATED PROMPT) ---
+# --- GEMINI CALLS (UPDATED PROMPT FOR PACKAGES ARRAY) ---
 def call_gemini_json_summary(text, api_key, target_lang="English"):
     model_name = get_working_model_name(api_key)
     if not model_name: return "Error: No available Gemini models found."
@@ -759,90 +599,57 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     1. **NO HALLUCINATION:** If pickup info or duration is not in the text, return "To be confirmed". Do NOT use "To be confirmed" for array lists like inclusions/exclusions (use an empty array [] or ["None mentioned"] instead).
     2. **STRICT LENGTH:** 'what_to_expect' MUST be between **100-120 words** AND strictly **UNDER 800 characters**. Count both.
     3. **NO FULL STOP:** The 'what_to_expect' paragraph MUST NOT end with a full stop (period).
-    4. **POINT OF VIEW (CRITICAL):** NEVER use first-person pronouns ("we", "us", "our") when referring to the tour provider. Always replace them with "The operator" (e.g., change "We offer pick-ups" to "The operator offers pick-ups").
-    5. **CONTENT COMPLETENESS (CRITICAL):** You MUST extract and mention ALL key locations, cities, landmarks, and attractions included in the package. If a package includes multiple destinations (e.g., visiting "Kinderdijk" AND "Designer Outlet"), you MUST explicitly mention ALL of them in the 'what_to_expect' and 'highlights'. Do NOT over-summarize and leave out secondary locations.
+    4. **POINT OF VIEW:** NEVER use first-person pronouns ("we", "us", "our"). Replace them with "The operator".
     
-    **HIGHLIGHTS RULES (STRICT):**
-    - **LENGTH:** Each bullet point must be **STRICTLY 10-12 words long**.
-    - **QUANTITY:** Generate exactly 4 bullet points.
-    - **NO FULL STOP:** Do NOT end highlights with a full stop/period.
-    - Must be specific to the activity.
-    
-    **SELLING POINTS:**
-    - Select EXACTLY 3-5 tags from the list below. Do NOT invent new ones.
-    - List: {SELLING_POINTS_LIST}
-    
-    **SETTINGS DATA (CRITICAL - READ CAREFULLY):**
-    - 'group_type': If the tour is private, return 'Private'. If it is a shared/public tour, look at 'max_pax'. If max_pax is 20 or below, return 'Join-in (small group)'. If max_pax is 21 or above, return 'Join-in (big group)'.
-    - 'min_pax': Look for explicit minimum booking requirements. If not explicitly stated, default to "1".
-    - 'max_pax': Look for explicit maximum capacity limits. If not explicitly stated, return "20".
-    
-    **ITINERARY & TIMING (CRITICAL):**
-    - **Start Time:** If a range is given (e.g., "Pickup 7:00am - 8:00am"), extract the **START** time (e.g., "07:00"). 
-    - **Format:** Use HH:MM format (24-hour clock).
-    - **NARRATIVE ITINERARIES:** If the itinerary is written as a story without times, YOU MUST STILL CREATE MULTIPLE SEGMENTS (at least 4 to 6). Extract every major location mentioned (e.g., Harbour Bridge, The Rocks, Bondi Beach, Watsons Bay) as its own separate segment in the array. 
-    - **No Lazy Summaries:** Do NOT group the tour into one generic segment like "City Tour". Fully populate the "name" and "details" for each location from the story. If no time is provided, set the "time" field to "TBC".
-    
-    **INCLUSIONS EXTRACTION (CRITICAL):**
-    - FIRST, you MUST scan the entire text for sections titled "Inclusions", "Included", "What's Included", "Includes", "Package Details", or similar lists.
-    - You MUST extract ALL explicit items listed in these sections verbatim (e.g., "1 ticket for Kinderdijk", "Free parking", "Fashion Passport"). Do not skip ANY tangible items, tickets, discounts, or services.
-    - NEXT, "read between the lines" and scan the rest of the text to add any missing implicit features (like "Audio guide" or "Hotel pickup") if they aren't already in the list.
-    - If the text mentions "Languages" available, you MUST add "Tour guide ([List Languages])" to the included list.
-    - ANTI-FLUFF RULE: DO NOT add generic activities or redundant concepts (e.g., "Sightseeing", "Experience"). Only list concrete items, tangible services, tickets, or food.
-    
-    **CONTACT EXTRACTION (CRITICAL):**
-    - You MUST scan the absolute bottom (footer) and top (header) of the text for phone numbers, WhatsApp numbers, or emails.
-    - If NO explicit email is found, look at the provided URL domain (e.g., tourtravelandmore.com) and infer a standard contact email (e.g., "Email: info@tourtravelandmore.com").
-    - Combine any found contacts into the 'merchant_contact' field. You MUST list the Phone number FIRST, followed by the Email, separated by a pipe symbol (e.g., "Phone: +1 234 567 | Email: info@tour.com").
-    
-    **PRICING EXTRACTION (CRITICAL):**
-    - Look closely for Adult, Child, and Infant prices. They often appear next to words like "from", "Options", or "Buy Tickets" (e.g., "from €49"). Extract just the numerical value.
-    - Extract child and infant age ranges if specified (e.g., "0-15", "4-12", "12+ Years"). 
-    - CRITICAL: You MUST scan the "HIDDEN TOOLTIPS" section at the bottom of the text to find hidden age restrictions associated with tickets.
-    - Detect Currency Code from the text (e.g., EUR, USD, AUD, or symbols like €, $, £).
+    **PACKAGE & TIER EXTRACTION (CRITICAL NEW RULE):**
+    - Scan the text for distinct ticket tiers, pricing options, or tour variations (e.g., "Standard", "VIP", "Without Transfer").
+    - For EVERY distinct option found, create a separate object inside the `packages` array.
+    - If there is only one option, create an array with a single package object named "Standard Package".
+    - You must assign specific `group_type`, `min_pax`, `max_pax`, `duration`, `pricing`, and `inclusions` inside EACH package object, as these vary by tier.
+    - 'group_type' Logic: If the tour is private, return 'Private'. If shared, check max_pax. <=20 is 'Join-in (small group)', >20 is 'Join-in (big group)'.
 
-    **RESTRICTIONS & REQUIREMENTS:**
-    - Extract any items the user is required or recommended to bring (e.g., ID, comfortable shoes, umbrella) into the 'what_to_bring' array within the 'restrictions' object.
+    **ITINERARY & TIMING:**
+    - Format: Use HH:MM format (24-hour clock).
+    - NARRATIVE ITINERARIES: Extract every major location mentioned as its own separate segment. No lazy summaries like "City Tour".
     
-    **ACTIVITY TITLE GENERATION (STRICT RULES):**
-    You MUST generate a highly formatted 'activity_title' based on the following Klook Style Guide.
+    **CONTACT EXTRACTION:**
+    - Extract contacts and return as: "Phone: +1 234 567 | Email: info@tour.com".
     
-    1. GENERAL RULES (Applies to all titles):
-       - STRICT LIMIT: Maximum 68 characters (including spaces). If over 68, use "&" instead of "and".
-       - NO PROMOS: Do not include words like "exclusive", "promotion", or "discount".
-       - NO DECORATIVE CHARACTERS: Do not use ~ ! * $ ? _ {{ }} # < > * ; ^ ¬ ¦ | "
-       - CAPITALIZATION: Capitalize the first letter of each word (Title Case). Do NOT capitalize prepositions or conjunctions (from, with, and, at, in, on, by).
-    
-    2. DETERMINE THE PRODUCT CATEGORY & FORMAT:
-       - IF IT IS AN ATTRACTION OR SHOW:
-         - Format: <Official Attraction Name> Ticket (e.g., "S.E.A. Aquarium Ticket")
-         - If Hop-on Hop-off: <City> Hop-on Hop-off Bus by <Operator> (e.g., "New Orleans Hop-On Hop-Off Bus by City Sightseeing")
-       
-       - IF IT IS A TOUR OR SIGHTSEEING:
-         - Suffix Rule: If a guide is included, end with "Tour". If no guide, end with "Trip".
-         - If Half/One Day: <Tour Name> Half-Day Tour (e.g., "Bohol Countryside Half-Day Tour")
-         - If outside the city: <Locations> One-Day Tour from <City> (e.g., "Oxford & Cambridge One-Day Tour from London")
-         - If Multiple Days: <Duration> <Tour Name> Tour (e.g., "3D2N Cool Dingo Fraser Island Tour")
-         - If Private: You MUST include the word "Private" (e.g., "Saigon Private Half-Day Tour")
-       
-       - IF IT IS AN ACTIVITY OR EXPERIENCE (Class, Spa, Trek, etc.):
-         - Format: <Activity Name> <Class/Experience/Trek/etc.> (e.g., "Redang Island Snorkeling Experience")
-         - If it's a pass: <Name> Day Pass (e.g., "Mountain Biking Day Pass")
+    **ACTIVITY TITLE GENERATION:**
+    1. STRICT LIMIT: Maximum 68 characters (including spaces). If over 68, use "&" instead of "and".
+    2. Format: <Official Attraction Name> Ticket or <Tour Name> Half-Day Tour or <Locations> One-Day Tour from <City>.
 
     **REQUIRED JSON STRUCTURE:**
     {{
         "basic_info": {{
             "activity_title": "The exact title generated using the strict rules above",
             "city_country": "City, Country",
-            "group_type": "Private/Join-in (small group)/Join-in (big group)",
-            "min_pax": "1",
-            "max_pax": "15",
-            "duration": "Duration",
             "main_attractions": "Tour Name",
             "highlights": ["Highlight 1 (10-12 words)", "Highlight 2 (10-12 words)", "Highlight 3", "Highlight 4"],
             "what_to_expect": "Strictly 100-120 words and max 800 chars. No final full stop",
             "selling_points": ["Tag 1", "Tag 2"]
         }},
+        "packages": [
+            {{
+                "package_title": "Standard High Tea",
+                "duration": "1 hour",
+                "group_type": "Join-in (small group)",
+                "min_pax": "1",
+                "max_pax": "15",
+                "pricing": {{ 
+                    "details": "Original text string",
+                    "currency": "USD",
+                    "adult_price": 0.0,
+                    "child_price": 0.0,
+                    "infant_price": 0.0,
+                    "child_age": "0-15"
+                }},
+                "inclusions": {{ 
+                    "included": ["Item 1", "Item 2"], 
+                    "excluded": ["Item 3"] 
+                }}
+            }}
+        ],
         "klook_itinerary": {{
             "start": {{ "time": "09:00", "location": "Meeting Point" }},
             "segments": [
@@ -851,17 +658,8 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
             "end": {{ "time": "17:00", "location": "Drop off" }}
         }},
         "policies": {{ "cancellation": "Policy", "merchant_contact": "Email: info@tour.com | Phone: +1 234 567" }},
-        "inclusions": {{ "included": ["Item 1"], "excluded": ["Item 2"] }},
         "restrictions": {{ "child_policy": "Details", "accessibility": "Details", "what_to_bring": ["Item 1", "Item 2"], "faq": ["FAQ content"] }},
         "seo": {{ "keywords": ["Key 1"] }},
-        "pricing": {{ 
-            "details": "Original text string",
-            "currency": "USD",
-            "adult_price": 0.0,
-            "child_price": 0.0,
-            "infant_price": 0.0,
-            "child_age": "0-15"
-        }},
         "analysis": {{ "ota_search_term": "Product Name" }}
     }}
     **INPUT TEXT:**
@@ -896,7 +694,7 @@ def regenerate_description_only(text, api_key, lang="English"):
         return response.text.strip()
     except: return "Error regenerating description."
 
-# --- GRAMMAR CHECKER FUNCTION (UPDATED FOR ERROR LISTING) ---
+# --- GRAMMAR CHECKER FUNCTION ---
 def fix_grammar_american(text, keys):
     if not keys: return {"error": "AI Error: No API keys found."}
     
@@ -926,18 +724,14 @@ def fix_grammar_american(text, keys):
         try:
             model_name = get_working_model_name(key)
             genai.configure(api_key=key)
-            # Force JSON output so we can separate the text and the error list
             model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
             
             response = model.generate_content(prompt)
-            
             clean_json = response.text.strip()
             if clean_json.startswith("```json"): clean_json = clean_json[7:]
             if clean_json.endswith("```"): clean_json = clean_json[:-3]
-            
             res_data = json.loads(clean_json.strip())
             
-            # Remove trailing period if present (matching your previous logic)
             if res_data.get("corrected_text", "").endswith("."):
                 res_data["corrected_text"] = res_data["corrected_text"][:-1]
                 
@@ -963,7 +757,6 @@ def call_gemini_email_draft(json_data, api_key):
 
 # --- CAPTION GENERATOR ---
 def call_gemini_caption(image_bytes, api_key, context_str=""):
-    # Reverting back to the smart finder since you are on the Paid Tier!
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name)
@@ -974,9 +767,7 @@ def call_gemini_caption(image_bytes, api_key, context_str=""):
         img = Image.open(io.BytesIO(image_bytes))
         response = model.generate_content([prompt, img])
         return response.text
-        
     except Exception as e: 
-        # 4. Stop failing silently! Print the exact error so we can debug if it happens again.
         return f"Caption Failed: {str(e)}"
 
 # --- HELPER: RENDER COPY BOX ---
@@ -986,15 +777,15 @@ def copy_box(label, text, height=None):
     st.caption(f"**{label}**")
     st.code(safe_text, language="text") 
 
-# --- POPUP DIALOG FUNCTION ---
+# --- POPUP DIALOG FUNCTION (UPDATED FOR PACKAGES) ---
 @st.dialog("📋 Full Data for Copy-Paste")
 def show_copy_dialog(data):
     info = data.get("basic_info", {})
+    packages = data.get("packages", [])
     itin = data.get("klook_itinerary", {})
     pol = data.get("policies", {})
     res = data.get("restrictions", {})
     seo = data.get("seo", {})
-    inc = data.get("inclusions", {})
     
     st.info("💡 Scroll down to see all sections.")
     def clean(t): return romanize_text(str(t)) if t else ""
@@ -1007,11 +798,21 @@ def show_copy_dialog(data):
     st.code(hl_text, language='text')
     st.caption("**Description**")
     st.code(clean(info.get('what_to_expect')), language='text')
-    st.caption("**Duration**")
-    st.code(clean(info.get('duration')), language='text')
     st.caption("**Selling Points**")
     sp_text = ", ".join([clean(s) for s in info.get('selling_points', [])])
     st.code(sp_text, language='text')
+
+    st.divider()
+    st.subheader("📦 Package Tiers")
+    for i, p in enumerate(packages):
+        st.write(f"**Tier {i+1}: {p.get('package_title')}**")
+        pkg_details = f"Duration: {p.get('duration')}\nGroup Type: {p.get('group_type')}\nPax: Min {p.get('min_pax')} - Max {p.get('max_pax')}\n"
+        
+        inc = p.get("inclusions", {})
+        pkg_details += f"\nInclusions:\n" + "\n".join([f"• {clean(x)}" for x in inc.get('included', [])])
+        pkg_details += f"\n\nExclusions:\n" + "\n".join([f"• {clean(x)}" for x in inc.get('excluded', [])])
+        
+        st.code(pkg_details, language='text')
 
     st.divider()
     st.subheader("2. Itinerary Details")
@@ -1027,12 +828,6 @@ def show_copy_dialog(data):
 
     st.divider()
     st.subheader("3. Policies & Restrictions")
-    st.caption("**Inclusions**")
-    inc_text = "\n".join([f"• {clean(x)}" for x in inc.get('included', [])])
-    st.code(inc_text, language='text')
-    st.caption("**Exclusions**")
-    exc_text = "\n".join([f"• {clean(x)}" for x in inc.get('excluded', [])])
-    st.code(exc_text, language='text')
     st.caption("**Cancellation Policy**")
     st.code(clean(pol.get('cancellation')), language='text')
     st.caption("**Child Policy**")
@@ -1047,7 +842,6 @@ def show_copy_dialog(data):
     kw_text = ", ".join(kw_list) if isinstance(kw_list, list) else str(kw_list)
     st.code(clean(kw_text), language='text')
     
-    # Format contacts downwards for copy-paste
     contact_clean = clean(pol.get('merchant_contact')).replace(' | ', '\n').replace('|', '\n')
     st.code(contact_clean, language='text')
 
@@ -1066,16 +860,11 @@ def render_output(json_text, url_input=None):
     
     try:
         data = json.loads(clean_text)
-        
-        # --- NEW: AUTO-UNWRAPPER FOR AI MISTAKES ---
-        # If the AI accidentally wraps the JSON in a list [ ], grab the first item
         if isinstance(data, list) and len(data) > 0:
             data = data[0]
             
-        # --- TYPE CHECKER ENFORCER ---
         if not isinstance(data, dict):
             raise ValueError("The AI did not return a valid JSON dictionary.")
-        # ----------------------------------
             
         if "basic_info" in data and "main_attractions" in data["basic_info"]:
             st.session_state['product_context'] = data["basic_info"]["main_attractions"]
@@ -1085,30 +874,9 @@ def render_output(json_text, url_input=None):
         return
         
     info = data.get("basic_info", {})
-    
-    # --- NEW: STRICT GROUP TYPE ENFORCER ---
-    current_group = info.get("group_type", "")
-    max_pax_val = str(info.get("max_pax", "")).strip()
-    
-    # Only evaluate pax rules if it is NOT a private tour
-    if "Private" not in current_group:
-        
-        # Rule 1: If max_pax is missing, text, or not a valid number, default to 20
-        if not max_pax_val.isdigit():
-            max_pax_val = "20"
-            info["max_pax"] = "20" # Updates the UI display to show 20
-            
-        # Rule 2: 1-20 is small group, >20 is big group
-        if int(max_pax_val) <= 20:
-            info["group_type"] = "Join-in (small group)"
-        else:
-            info["group_type"] = "Join-in (big group)"
-    # ---------------------------------------
-
-    inc = data.get("inclusions", {})
+    packages = data.get("packages", [])
     pol = data.get("policies", {})
     seo = data.get("seo", {})
-    price_data = data.get("pricing", {})
 
     st.success("✅ Analysis Complete!")
     if st.button("🚀 Open Full Data Popup", type="primary", use_container_width=True):
@@ -1119,8 +887,6 @@ def render_output(json_text, url_input=None):
         st.header("📋 Copy Dashboard")
         copy_box("📍 Location", info.get('city_country'))
         copy_box("🏷️ Name", info.get('main_attractions'))
-        
-        # Format contacts downwards
         contact_text = str(pol.get('merchant_contact', '')).replace(' | ', '\n').replace('|', '\n')
         copy_box("📞 Contact", contact_text)
         st.divider()
@@ -1129,18 +895,16 @@ def render_output(json_text, url_input=None):
             if pdf_data:
                 st.download_button("📄 Download Summary PDF", pdf_data, f"Klook_Summary_{int(time.time())}.pdf", "application/pdf")
 
-    tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Klook Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Price", "📊 Analysis", "📧 Supplier Email", "🔧 Automation"]
+    tab_names = ["ℹ️ Basic Info", "⏰ Start & End", "🗺️ Klook Itinerary", "📜 Policies", "✅ Inclusions", "🚫 Restrictions", "🔍 SEO", "💰 Packages & Price", "📊 Analysis", "📧 Supplier Email", "🔧 Automation"]
     tabs = st.tabs(tab_names)
 
     with tabs[0]:
         st.subheader(f"🎟️ {info.get('activity_title', 'Activity Title (Not Generated)')}")
         st.write(f"**📍 Location:** {info.get('city_country')}")
-        st.write(f"**⏳ Duration:** {info.get('duration')}")
-        st.write(f"**👥 Group:** {info.get('group_type')}")
         
-        c_min, c_max = st.columns(2)
-        c_min.metric("📉 Min Pax", info.get('min_pax', '1'))
-        c_max.metric("📈 Max Pax", info.get('max_pax', 'Check with Merchant'))
+        st.write(f"**📦 Packages Found ({len(packages)}):**")
+        for p in packages:
+            st.write(f"- {p.get('package_title')} *({p.get('duration')} | {p.get('group_type')})*")
         
         st.divider()
         st.write("**🌟 Highlights:**")
@@ -1229,13 +993,22 @@ def render_output(json_text, url_input=None):
             st.write(line.strip())
 
     with tabs[4]:
-        c1, c2 = st.columns(2)
-        with c1: 
-            st.write("✅ **Included**")
-            for x in inc.get("included", []): st.write(f"- {x}")
-        with c2: 
-            st.write("❌ **Excluded**")
-            for x in inc.get("excluded", []): st.write(f"- {x}")
+        st.write("📦 **Package Inclusions**")
+        if packages:
+            # Create sub-tabs for each package
+            pkg_tabs = st.tabs([p.get("package_title", f"Package {i+1}") for i, p in enumerate(packages)])
+            for i, p in enumerate(packages):
+                with pkg_tabs[i]:
+                    inc = p.get("inclusions", {})
+                    c1, c2 = st.columns(2)
+                    with c1: 
+                        st.write("✅ **Included**")
+                        for x in inc.get("included", []): st.write(f"- {x}")
+                    with c2: 
+                        st.write("❌ **Excluded**")
+                        for x in inc.get("excluded", []): st.write(f"- {x}")
+        else:
+            st.write("No packages detected.")
 
     with tabs[5]:
         res = data.get("restrictions", {})
@@ -1258,10 +1031,8 @@ def render_output(json_text, url_input=None):
         st.code(kw_text, language="text")
     
     with tabs[7]:
-        st.header("💰 Price & Margin Calculator")
-        st.subheader("🔎 Extracted from Website")
+        st.header("💰 Package Pricing & Calculator")
         
-        # --- SAFE PRICE EXTRACTION ---
         def safe_float(val, default=0.0):
             try:
                 clean_val = str(val).replace('$', '').replace('€', '').replace('£', '').replace(',', '').strip()
@@ -1269,33 +1040,44 @@ def render_output(json_text, url_input=None):
             except (ValueError, TypeError):
                 return default
 
-        cur = price_data.get('currency', 'USD')
-        p_adult_raw = price_data.get('adult_price', 0.0)
-        p_child_raw = price_data.get('child_price', 0.0)
-        p_infant_raw = price_data.get('infant_price', 0.0)
-        
-        p_adult = safe_float(p_adult_raw, 100.0) # Defaults to 100 if text found
-        p_child = safe_float(p_child_raw, 0.0)
-        p_infant = safe_float(p_infant_raw, 0.0)
-        c_age = price_data.get('child_age', 'N/A')
-        # -----------------------------
-        
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Adult Price", f"{cur} {p_adult}")
-        c2.metric("Child Price", f"{cur} {p_child}")
-        c3.metric("👦 Child Age", str(c_age))
-        c4.metric("Infant Price", f"{cur} {p_infant}")
-        st.caption(f"Raw Details: {price_data.get('details', '')}")
-        st.divider()
-        st.subheader("🧮 Net Rate Calculator")
-        calc_price = st.number_input("🏷️ Merchant Public Price", min_value=0.0, value=float(p_adult) if p_adult else 100.0, step=1.0)
-        margin_pct = st.number_input("📉 Target Margin (%)", min_value=0.0, max_value=100.0, value=20.0, step=0.5)
-        net_rate = calc_price * (1 - (margin_pct / 100))
-        profit = calc_price - net_rate
-        k1, k2, k3 = st.columns(3)
-        k1.metric("🛒 Klook Sell Price", f"{calc_price:,.2f}")
-        k2.metric("💵 Net Rate (Cost)", f"{net_rate:,.2f}")
-        k3.metric("📈 Profit / Booking", f"{profit:,.2f}")
+        if not packages:
+            st.warning("No packages found to display pricing.")
+            
+        for i, p in enumerate(packages):
+            with st.expander(f"🏷️ {p.get('package_title', f'Package {i+1}')}", expanded=True):
+                price_data = p.get("pricing", {})
+                cur = price_data.get('currency', 'USD')
+                p_adult = safe_float(price_data.get('adult_price', 0.0), 100.0)
+                p_child = safe_float(price_data.get('child_price', 0.0), 0.0)
+                p_infant = safe_float(price_data.get('infant_price', 0.0), 0.0)
+                c_age = price_data.get('child_age', 'N/A')
+                
+                st.write(f"**Duration:** {p.get('duration')} | **Group:** {p.get('group_type')} (Min {p.get('min_pax')} - Max {p.get('max_pax')})")
+                
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Adult Price", f"{cur} {p_adult}")
+                c2.metric("Child Price", f"{cur} {p_child}")
+                c3.metric("👦 Child Age", str(c_age))
+                c4.metric("Infant Price", f"{cur} {p_infant}")
+                st.caption(f"Raw Details: {price_data.get('details', '')}")
+                
+                st.divider()
+                st.write("🧮 **Net Rate Calculator**")
+                
+                col_calc, col_res1, col_res2, col_res3 = st.columns([1.5, 1, 1, 1])
+                with col_calc:
+                    calc_price = st.number_input(f"Public Price ({cur})", min_value=0.0, value=float(p_adult) if p_adult else 100.0, step=1.0, key=f"calc_price_{i}")
+                    margin_pct = st.number_input(f"Target Margin (%)", min_value=0.0, max_value=100.0, value=20.0, step=0.5, key=f"calc_margin_{i}")
+                
+                net_rate = calc_price * (1 - (margin_pct / 100))
+                profit = calc_price - net_rate
+                
+                with col_res1:
+                    st.metric("🛒 Klook Sell Price", f"{calc_price:,.2f}")
+                with col_res2:
+                    st.metric("💵 Net Rate", f"{net_rate:,.2f}")
+                with col_res3:
+                    st.metric("📈 Profit", f"{profit:,.2f}")
     
     with tabs[8]: 
         an = data.get("analysis", {})
@@ -1330,10 +1112,8 @@ def render_output(json_text, url_input=None):
     with tabs[10]:
         st.header("🔧 Automation Data & Frontend Preview")
         
-        # Create a copy of the data specifically for the extension
         extension_payload = data.copy()
         
-        # If there are processed images in the session memory, pack them in!
         if st.session_state.get('processed_images_data'):
             formatted_photos = []
             for item in st.session_state['processed_images_data']:
@@ -1342,8 +1122,6 @@ def render_output(json_text, url_input=None):
                     "caption": item["caption"],
                     "base64": item.get("b64_string", "") 
                 })
-            
-            # Attach the array directly to the payload
             extension_payload["processed_photos"] = formatted_photos
             
         c1, c2 = st.columns([1, 1])
@@ -1355,10 +1133,8 @@ def render_output(json_text, url_input=None):
             st.subheader("🖥️ Klook UI Preview")
             st.info("Render the extracted data perfectly, without React crashing.")
             if st.button("👁️ Generate Klook-Style Preview", use_container_width=True):
-                # Generate the purely static HTML natively from Python
                 html_code = generate_static_html_preview(extension_payload)
                 components.html(html_code, height=850, scrolling=True)
-
 
 # --- SMART ROTATION (FIXED ERROR EXPOSURE) ---
 def smart_rotation_wrapper(text, keys, lang="English"):
@@ -1368,24 +1144,20 @@ def smart_rotation_wrapper(text, keys, lang="English"):
     random.shuffle(shuffled_keys)
     last_error = ""
     
-    for attempt in range(2): # Give the whole list of keys 2 full attempts
+    for attempt in range(2):
         for key in shuffled_keys:
             result = call_gemini_json_summary(text, key, lang)
             
-            # If it's a quota error, trigger a proper cool down
             if result == "429_LIMIT" or "429" in str(result):
                 last_error = "429 Quota Exceeded. API is cooling down..."
-                time.sleep(4) # This 4-second pause is mandatory to bypass spam filters!
+                time.sleep(4)
                 continue
             
-            # If it is another AI error (like 404), log it and try next key
             if "Error" in str(result):
                 last_error = result
                 continue
                 
-            # SUCCESS! Process the JSON
             try:
-                # Clean up markdown formatting if the AI added it
                 clean_result = result.replace("```json", "").replace("```", "").strip()
                 d = json.loads(clean_result)
                 
@@ -1405,9 +1177,7 @@ def smart_rotation_wrapper(text, keys, lang="English"):
             
             return result
             
-    # If all keys fail, it will now tell you EXACTLY why!
     return f"⚠️ AI Failed. Last Error: {last_error}"
-
 
 # --- MAIN APP LOGIC ---
 with st.sidebar:
@@ -1415,10 +1185,9 @@ with st.sidebar:
     target_lang = st.selectbox("🌐 Target Language", ["English", "Chinese (Traditional)", "Chinese (Simplified)", "Korean", "Japanese", "Thai", "Vietnamese", "Indonesian"])
     st.divider()
 
-t1, t2, t3, t4, t5, t6, t7 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "🛡️ Merchant Screening Tool", "📝 Grammar Check", "🔎 Klook Search"])
+t1, t2, t3, t4, t6, t7 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "📝 Grammar Check", "🔎 Klook Search"])
 
 with t1:
-    # Adding label_visibility and using standard input
     url = st.text_input("Paste Tour Link", value="", key="main_url_input")
     if st.button("Generate from Link"):
         keys = get_all_keys()
@@ -1495,7 +1264,6 @@ with t3:
                 status.update(label="❌ AI Failed", state="error")
                 st.error(result)
 
-# --- PHOTO RESIZER TAB (SEQUENTIAL & STABLE) ---
 with t4:
     st.info("Upload photos OR use photos scraped from the link.")
     
@@ -1540,7 +1308,6 @@ with t4:
                 prog_bar = st.progress(0)
                 total_count = len(total_items)
                 
-                # --- SEQUENTIAL PROCESSING (STABLE & SAFE) ---
                 for idx, item in enumerate(total_items):
                     prog_bar.progress((idx + 1) / total_count)
                     
@@ -1562,9 +1329,6 @@ with t4:
                         caption_text = ""
                         if enable_captions and keys:
                             caption_text = call_gemini_caption(b_img, random.choice(keys), context_str=manual_context)
-                            
-                            # Add a 2-second delay to prevent rate-limiting crashes 
-                            time.sleep(2)
                         
                         st.session_state['processed_images_data'].append({
                             "fname": fname,
@@ -1579,7 +1343,6 @@ with t4:
             st.session_state['zip_buffer'] = zip_buf.getvalue()
             st.success("✅ All images processed successfully!")
 
-    # DISPLAY SECTION 
     if st.session_state.get('processed_images_data'):
         for item in st.session_state['processed_images_data']:
             c1, c2 = st.columns([1, 2])
@@ -1614,81 +1377,6 @@ with t4:
         if st.session_state.get('zip_buffer'):
             st.download_button("⬇️ Download All (ZIP)", st.session_state['zip_buffer'], "klook_images.zip", "application/zip")
 
-# --- TAB 5 UI (UPDATED ADVANCED MERCHANT VALIDATOR) ---
-with t5:
-    st.header("🛡️ Merchant Risk Assessment")
-    m_url = st.text_input("Merchant Website URL", key="m_url")
-    m_text = st.text_area("About Us / Business Text (Optional)", key="m_text")
-    
-    if st.button("🔍 Run Risk Audit"):
-        keys = get_all_keys()
-        if not keys: st.error("❌ No Keys"); st.stop()
-        
-        with st.status("🕵️ Auditing Merchant & Checking Categories...", expanded=True) as status:
-            risk_res = validate_merchant_risk(m_text, m_url, keys)
-            
-            if "error" in risk_res and len(risk_res) == 2: 
-                 status.update(label="❌ Audit Failed!", state="error")
-                 st.error(risk_res["error"])
-            else:
-                 st.session_state['merchant_result'] = risk_res
-                 status.update(label="✅ Audit Complete!", state="complete")
-
-    if st.session_state['merchant_result'] and "legitimacy_score" in st.session_state['merchant_result']:
-        res = st.session_state['merchant_result']
-        m_name = res.get('merchant_name', 'Merchant')
-        status_val = res.get('status', 'Unknown')
-        
-        # 1. BIG DECISION BANNER
-        if status_val.lower() == 'approved':
-            st.success(f"### ✅ STATUS: APPROVED \n **Reason:** {res.get('status_reason', '')}")
-        else:
-            st.error(f"### ❌ STATUS: REJECTED \n **Reason:** {res.get('status_reason', '')}")
-            
-        st.divider()
-        
-        # 2. SCORE & MERCHANT INFO
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.metric("Legitimacy Score", f"{res.get('legitimacy_score', 0)}/100")
-            st.write(f"**Merchant:** {m_name}")
-            st.write(f"**Domain Age:** {res.get('domain_age', 'Unknown')} years")
-        with col2:
-            st.info(f"**Score Breakdown:** \n {res.get('score_reason', 'N/A')}")
-            
-            st.write("🌐 **OTA Cross-Check (Google)**")
-            search_query = urllib.parse.quote(f'"{m_name}"')
-            st.link_button("🔵 Find on GetYourGuide", f"https://www.google.com/search?q={search_query}+GetYourGuide")
-            st.link_button("🟢 Find on Viator", f"https://www.google.com/search?q={search_query}+Viator")
-
-        st.divider()
-
-        # 3. CATEGORY TRIANGULATION 
-        st.subheader("📊 Category Extraction")
-        c_pref, c_red, c_other = st.columns(3)
-        
-        with c_pref:
-            st.write("🟢 **Approve Criterias**")
-            items = res.get('preferred_categories_found', [])
-            if items:
-                for c in items: st.success(f"✅ {c}")
-            else: st.caption("None found.")
-                
-        with c_red:
-            st.write("🔴 **Reject Criterias**")
-            items = res.get('red_flag_categories_found', [])
-            if items:
-                for c in items: st.error(f"🚩 {c}")
-            else: st.caption("None found.")
-                
-        with c_other:
-            st.write("⚪ **Other Criterias**")
-            items = res.get('other_categories_found', [])
-            if items:
-                for c in items: st.info(f"🔹 {c}")
-            else: st.caption("None found.")
-
-# --- TAB 6 UI (NEW GRAMMAR CHECKER WITH ERROR LIST) ---
 with t6:
     st.header("📝 Grammar Checker (American English)")
     st.info("Paste your text below to correct grammar and check word count.")
@@ -1709,7 +1397,6 @@ with t6:
                 fixed_text = grammar_res.get("corrected_text", "")
                 errors_list = grammar_res.get("errors_found", [])
                 
-                # Calculate counts
                 wc_original = len(text_input.split())
                 wc_fixed = len(fixed_text.split())
                 char_count = len(fixed_text)
@@ -1721,7 +1408,6 @@ with t6:
                 
                 st.divider()
                 
-                # Create two columns for the output
                 out_col1, out_col2 = st.columns([2, 1])
                 
                 with out_col1:
@@ -1740,7 +1426,6 @@ with t6:
                             
                 st.success("Correction Complete!")
 
-# --- TAB 7 UI (KLOOK SEARCH) ---
 with t7:
     st.header("🔎 Activity Similarity Check")
     st.info("Paste a competitor's tour link or type the activity name to check if it already exists on Klook.")
@@ -1765,7 +1450,6 @@ with t7:
         
         st.write(f"**Extracted Search Term:** `{query_text}`")
         
-        # Generate the Search Links
         encoded_google_term = urllib.parse.quote(f"site:klook.com {query_text}")
         google_klook_url = f"https://www.google.com/search?q={encoded_google_term}"
         
