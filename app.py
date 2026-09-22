@@ -634,8 +634,8 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
                 "package_title": "Standard High Tea",
                 "duration": "1 hour",
                 "group_type": "Join-in (small group)",
-                "min_pax": "1",
-                "max_pax": "15",
+                "min_pax": "Extract min pax from text (default '1')",
+                "max_pax": "Extract max pax from text (default '20')",
                 "pricing": {{ 
                     "details": "Original text string",
                     "currency": "USD",
