@@ -132,6 +132,8 @@ def generate_static_html_preview(data):
     # Safely extract primitive values from basic_info
     title = b.get("activity_title", "Generated Activity")
     city = b.get("city_country", "Location")
+    address = b.get("address", "TBC")
+    hours = b.get("opening_hours", "TBC")
     wte = b.get("what_to_expect", "")
     attractions = b.get("main_attractions", "")
     
@@ -222,6 +224,8 @@ def generate_static_html_preview(data):
             <div class="flex flex-wrap gap-2 mt-3">
                 <span class="bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-md">Meet with guide</span>
                 <span class="bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-md">{duration} Duration</span>
+                <span class="bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-md">📍 {address}</span>
+                <span class="bg-gray-100 text-gray-700 text-xs px-3 py-1.5 rounded-md">🕒 {hours}</span>
             </div>
 
             <div class="grid grid-cols-3 grid-rows-2 gap-1 rounded-xl overflow-hidden mt-6 h-[260px] sm:h-[380px]">
@@ -579,7 +583,7 @@ Hot Spring, Beach, Yoga, Meditation,
 City, Countryside, Night, Shopping, Sightseeing, Photography, Self-guided, Shore Excursion, Adventure, Discovery, Backstreets, Hidden Gems
 """
 
-# --- GEMINI CALLS (UPDATED PROMPT FOR PACKAGES ARRAY) ---
+# --- GEMINI CALLS (UPDATED PROMPT FOR PACKAGES ARRAY + ADDRESS/HOURS) ---
 def call_gemini_json_summary(text, api_key, target_lang="English"):
     model_name = get_working_model_name(api_key)
     if not model_name: return "Error: No available Gemini models found."
@@ -624,6 +628,8 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
         "basic_info": {{
             "activity_title": "The exact title generated using the strict rules above",
             "city_country": "City, Country",
+            "address": "Exact street address or meeting point found in text",
+            "opening_hours": "Operating/Opening hours if mentioned (e.g., '09:00 - 17:00' or 'Check official site')",
             "main_attractions": "Tour Name",
             "highlights": ["Highlight 1 (10-12 words)", "Highlight 2 (10-12 words)", "Highlight 3", "Highlight 4"],
             "what_to_expect": "Strictly 100-120 words and max 800 chars. No final full stop",
@@ -777,7 +783,7 @@ def copy_box(label, text, height=None):
     st.caption(f"**{label}**")
     st.code(safe_text, language="text") 
 
-# --- POPUP DIALOG FUNCTION (UPDATED FOR PACKAGES) ---
+# --- POPUP DIALOG FUNCTION (UPDATED FOR PACKAGES & ADDRESS/HOURS) ---
 @st.dialog("📋 Full Data for Copy-Paste")
 def show_copy_dialog(data):
     info = data.get("basic_info", {})
@@ -793,6 +799,10 @@ def show_copy_dialog(data):
     st.subheader("1. Basic Information")
     st.caption("**Activity Name**")
     st.code(clean(info.get('main_attractions')), language='text')
+    st.caption("**Address**")
+    st.code(clean(info.get('address')), language='text')
+    st.caption("**Opening Hours**")
+    st.code(clean(info.get('opening_hours')), language='text')
     st.caption("**Highlights**")
     hl_text = "\n".join([f"• {clean(h)}" for h in info.get('highlights', [])])
     st.code(hl_text, language='text')
@@ -886,6 +896,8 @@ def render_output(json_text, url_input=None):
     with st.sidebar:
         st.header("📋 Copy Dashboard")
         copy_box("📍 Location", info.get('city_country'))
+        copy_box("📍 Address", info.get('address'))
+        copy_box("🕒 Opening Hours", info.get('opening_hours'))
         copy_box("🏷️ Name", info.get('main_attractions'))
         contact_text = str(pol.get('merchant_contact', '')).replace(' | ', '\n').replace('|', '\n')
         copy_box("📞 Contact", contact_text)
@@ -901,6 +913,8 @@ def render_output(json_text, url_input=None):
     with tabs[0]:
         st.subheader(f"🎟️ {info.get('activity_title', 'Activity Title (Not Generated)')}")
         st.write(f"**📍 Location:** {info.get('city_country')}")
+        st.write(f"**🗺️ Address:** {info.get('address', 'To be confirmed')}")
+        st.write(f"**🕒 Opening Hours:** {info.get('opening_hours', 'To be confirmed')}")
         
         st.write(f"**📦 Packages Found ({len(packages)}):**")
         for p in packages:
@@ -995,7 +1009,6 @@ def render_output(json_text, url_input=None):
     with tabs[4]:
         st.write("📦 **Package Inclusions**")
         if packages:
-            # Create sub-tabs for each package
             pkg_tabs = st.tabs([p.get("package_title", f"Package {i+1}") for i, p in enumerate(packages)])
             for i, p in enumerate(packages):
                 with pkg_tabs[i]:
@@ -1185,6 +1198,7 @@ with st.sidebar:
     target_lang = st.selectbox("🌐 Target Language", ["English", "Chinese (Traditional)", "Chinese (Simplified)", "Korean", "Japanese", "Thai", "Vietnamese", "Indonesian"])
     st.divider()
 
+# NOTE: The "Merchant Screening Tool" tab was removed from this list per your earlier request to make it run faster.
 t1, t2, t3, t4, t6, t7 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "📝 Grammar Check", "🔎 Klook Search"])
 
 with t1:
