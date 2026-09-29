@@ -535,7 +535,6 @@ def create_pdf(data):
     doc.build(story)
     return buffer.getvalue()
 
-
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_working_model_name(api_key):
     genai.configure(api_key=api_key)
@@ -664,9 +663,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
 
-# --- SMART FALLBACK SEARCH ALGORITHM ---
 def fetch_missing_details(activity_name, city, target_info, api_key):
-    """Fires a targeted AI prompt specifically to grab missing info to inject into the payload."""
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
@@ -902,8 +899,6 @@ def render_output(json_text, url_input=None):
     with st.sidebar:
         st.header("📋 Copy Dashboard")
         copy_box("📍 Location", info.get('city_country'))
-        copy_box("📍 Address", info.get('address'))
-        copy_box("🕒 Opening Hours", info.get('opening_hours'))
         copy_box("🏷️ Name", info.get('main_attractions'))
         contact_text = str(pol.get('merchant_contact', '')).replace(' | ', '\n').replace('|', '\n')
         copy_box("📞 Contact", contact_text)
@@ -920,44 +915,6 @@ def render_output(json_text, url_input=None):
         st.subheader(f"🎟️ {info.get('activity_title', 'Activity Title (Not Generated)')}")
         st.write(f"**📍 Location:** {info.get('city_country')}")
         
-        # --- ADDRESS ROW ---
-        col_a1, col_a2 = st.columns([3, 1])
-        with col_a1:
-            st.write(f"**🗺️ Address:** {info.get('address', 'To be confirmed')}")
-            if info.get('address_source'):
-                st.caption(f"*Source: {info.get('address_source')}*")
-        with col_a2:
-            if "confirmed" in str(info.get('address', '')).lower() or not info.get('address'):
-                if st.button("🔍 Search Address AI", use_container_width=True):
-                    keys = get_all_keys()
-                    if keys:
-                        with st.spinner("Searching..."):
-                            res = fetch_missing_details(info.get('main_attractions'), info.get('city_country'), "exact street address", keys[0])
-                            data_obj = json.loads(st.session_state['gen_result'])
-                            data_obj["basic_info"]["address"] = res.get("result", "Not found")
-                            data_obj["basic_info"]["address_source"] = res.get("source", "")
-                            st.session_state['gen_result'] = json.dumps(data_obj)
-                            st.rerun()
-
-        # --- OPENING HOURS ROW ---
-        col_h1, col_h2 = st.columns([3, 1])
-        with col_h1:
-            st.write(f"**🕒 Opening Hours:** {info.get('opening_hours', 'To be confirmed')}")
-            if info.get('hours_source'):
-                st.caption(f"*Source: {info.get('hours_source')}*")
-        with col_h2:
-            if "confirmed" in str(info.get('opening_hours', '')).lower() or not info.get('opening_hours'):
-                if st.button("🔍 Search Hours AI", use_container_width=True):
-                    keys = get_all_keys()
-                    if keys:
-                        with st.spinner("Searching..."):
-                            res = fetch_missing_details(info.get('main_attractions'), info.get('city_country'), "opening hours", keys[0])
-                            data_obj = json.loads(st.session_state['gen_result'])
-                            data_obj["basic_info"]["opening_hours"] = res.get("result", "Not found")
-                            data_obj["basic_info"]["hours_source"] = res.get("source", "")
-                            st.session_state['gen_result'] = json.dumps(data_obj)
-                            st.rerun()
-        
         st.write(f"**📦 Packages Found ({len(packages)}):**")
         for p in packages:
             st.write(f"- {p.get('package_title')} *({p.get('duration')} | {p.get('group_type')})*")
@@ -968,6 +925,39 @@ def render_output(json_text, url_input=None):
             st.write(f"- {h}")
         st.write("**🏷️ Selling Points:**")
         st.write(", ".join(info.get("selling_points", [])))
+        
+        # --- EDITABLE ADDRESS & HOURS SECTION (Below Highlights) ---
+        st.divider()
+        st.markdown("### 📍 Merchant Venue & Operating Hours")
+        st.caption("Edit these fields directly to match the Klook backend format.")
+        
+        col_edit, col_ai = st.columns([3, 1])
+        with col_edit:
+            new_address = st.text_input("📍 Address", value=info.get("address", "To be confirmed"))
+            new_hours = st.text_input("🕒 Opening Hours", value=info.get("opening_hours", "To be confirmed"))
+            
+            # Update the data dictionary silently so Tab 10 catches the edits
+            if new_address != info.get("address") or new_hours != info.get("opening_hours"):
+                data["basic_info"]["address"] = new_address
+                data["basic_info"]["opening_hours"] = new_hours
+                st.session_state['gen_result'] = json.dumps(data)
+                
+        with col_ai:
+            st.write("") # Padding for alignment
+            st.write("")
+            if st.button("🔍 Search Info AI", use_container_width=True, key="search_info_btn"):
+                keys = get_all_keys()
+                if keys:
+                    with st.spinner("Searching for missing info..."):
+                        a_res = fetch_missing_details(info.get('main_attractions'), info.get('city_country'), "exact street address", keys[0])
+                        h_res = fetch_missing_details(info.get('main_attractions'), info.get('city_country'), "opening hours", keys[0])
+                        
+                        data_obj = json.loads(st.session_state['gen_result'])
+                        data_obj["basic_info"]["address"] = a_res.get("result", "Not found")
+                        data_obj["basic_info"]["opening_hours"] = h_res.get("result", "Not found")
+                        st.session_state['gen_result'] = json.dumps(data_obj)
+                        st.rerun()
+        # -----------------------------------------------------------
         
         st.divider()
         
