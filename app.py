@@ -872,6 +872,10 @@ def render_output(json_text, url_input=None):
     if clean_text.startswith("```json"): clean_text = clean_text[7:]
     if clean_text.endswith("```"): clean_text = clean_text[:-3]
     
+    # --- NEW: AUTO-REPAIR MISSING AI COMMAS ---
+    clean_text = re.sub(r'\]\s*"klook_itinerary"', '],\n"klook_itinerary"', clean_text)
+    clean_text = re.sub(r'\}\s*"klook_itinerary"', '},\n"klook_itinerary"', clean_text)
+    
     try:
         data = json.loads(clean_text)
         if isinstance(data, list) and len(data) > 0:
