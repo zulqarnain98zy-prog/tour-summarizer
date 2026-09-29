@@ -1242,7 +1242,6 @@ def smart_rotation_wrapper(text, keys, lang="English"):
                 continue
                 
             try:
-                # The line goes right here!
                 clean_result = result.replace("```json", "").replace("```", "").strip()
                 d = json.loads(clean_result)
                 
@@ -1263,3 +1262,293 @@ def smart_rotation_wrapper(text, keys, lang="English"):
             return result
             
     return f"⚠️ AI Failed. Last Error: {last_error}"
+
+# --- MAIN APP LOGIC ---
+with st.sidebar:
+    st.header("⚙️ Settings")
+    target_lang = st.selectbox("🌐 Target Language", ["English", "Chinese (Traditional)", "Chinese (Simplified)", "Korean", "Japanese", "Thai", "Vietnamese", "Indonesian"])
+    st.divider()
+
+t1, t2, t3, t4, t6, t7 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "📝 Grammar Check", "🔎 Klook Search"])
+
+with t1:
+    url = st.text_input("Paste Tour Link", value="", key="main_url_input")
+    if st.button("Generate from Link"):
+        keys = get_all_keys()
+        if not keys: st.error("❌ No API Keys"); st.stop()
+        if not url: st.error("❌ Enter URL"); st.stop()
+
+        with st.status("🚀 Processing...", expanded=True) as status:
+            status.write("🕷️ Scraping URL & Images...")
+            data_dict, err = extract_data_from_url(url)
+            
+            if err or not data_dict:
+                status.update(label="❌ Scrape Failed", state="error")
+                st.error(err)
+                st.stop()
+            
+            st.session_state['scraped_images'] = data_dict['images']
+            st.session_state['raw_text_content'] = data_dict['text'] 
+            
+            status.write(f"✅ Found {len(data_dict['images'])} images & {len(data_dict['text'])} chars. Calling AI...")
+            result = smart_rotation_wrapper(data_dict['text'], keys, target_lang)
+            
+            if "Busy" not in result and "Error" not in result:
+                st.session_state['gen_result'] = result
+                st.session_state['url_input'] = url
+            
+            if "Busy" in result or "Error" in result or "Failed" in result:
+                status.update(label="❌ AI Failed", state="error")
+                st.error(result)
+            else:
+                status.update(label="✅ Complete!", state="complete")
+
+with t2:
+    raw_text = st.text_area("Paste Tour Text")
+    if st.button("Generate from Text"):
+        keys = get_all_keys()
+        if not keys: st.error("❌ No Keys"); st.stop()
+        st.session_state['raw_text_content'] = raw_text 
+        result = smart_rotation_wrapper(raw_text, keys, target_lang)
+        if "Busy" not in result and "Error" not in result and "Failed" not in result:
+            st.session_state['gen_result'] = result
+            try:
+                d = json.loads(result)
+                if "basic_info" in d: st.session_state['product_context'] = d["basic_info"].get("main_attractions", "")
+            except: pass
+        else:
+            st.error(result)
+
+with t3:
+    st.info("Upload a PDF brochure or document to summarize.")
+    pdf_file = st.file_uploader("Upload PDF", type=['pdf'])
+    if pdf_file and st.button("Generate from PDF"):
+        keys = get_all_keys()
+        if not keys: st.error("❌ No Keys"); st.stop()
+        
+        with st.status("🚀 Reading PDF...", expanded=True) as status:
+            pdf_text = extract_text_from_pdf(pdf_file)
+            if "Error" in pdf_text:
+                status.update(label="❌ PDF Read Failed", state="error")
+                st.error(pdf_text)
+                st.stop()
+            
+            st.session_state['raw_text_content'] = pdf_text 
+            status.write(f"✅ Extracted {len(pdf_text)} chars. Calling AI...")
+            result = smart_rotation_wrapper(pdf_text, keys, target_lang)
+            
+            if "Busy" not in result and "Error" not in result and "Failed" not in result:
+                st.session_state['gen_result'] = result
+                try:
+                    d = json.loads(result)
+                    if "basic_info" in d: st.session_state['product_context'] = d["basic_info"].get("main_attractions", "")
+                except: pass
+                status.update(label="✅ Complete!", state="complete")
+            else:
+                status.update(label="❌ AI Failed", state="error")
+                st.error(result)
+
+with t4:
+    st.info("Upload photos OR use photos scraped from the link.")
+    
+    context_val = st.session_state.get('product_context', '')
+    manual_context = st.text_input("Product Name / Context (for better captions):", value=context_val)
+    
+    enable_captions = st.checkbox("☑️ Generate AI Captions", value=True)
+    c_align = st.selectbox("Crop Focus", ["Center", "Top", "Bottom", "Left", "Right"])
+    align_map = {"Center":(0.5,0.5), "Top":(0.5,0.0), "Bottom":(0.5,1.0), "Left":(0.0,0.5), "Right":(1.0,0.5)}
+    
+    files = st.file_uploader("Upload Files", accept_multiple_files=True, type=['jpg','png','jpeg'])
+    
+    selected_scraped = []
+    if st.session_state['scraped_images']:
+        st.divider()
+        st.write(f"**🌐 Found {len(st.session_state['scraped_images'])} images from website:**")
+        cols = st.columns(5)
+        for i, img_url in enumerate(st.session_state['scraped_images']):
+            with cols[i % 5]:
+                try:
+                    st.image(img_url, use_container_width=True)
+                    if st.checkbox("Select", key=f"img_{i}"):
+                        selected_scraped.append(img_url)
+                except Exception:
+                    st.warning(f"⚠️ Could not load image {i+1}")
+
+    if 'processed_images_data' not in st.session_state:
+        st.session_state['processed_images_data'] = []
+        st.session_state['zip_buffer'] = None
+
+    if st.button("Process Selected Images"):
+        keys = get_all_keys()
+        total_items = (files if files else []) + selected_scraped
+        
+        if not total_items:
+            st.warning("⚠️ No images selected.")
+        else:
+            st.session_state['processed_images_data'] = [] 
+            zip_buf = io.BytesIO()
+            
+            with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                prog_bar = st.progress(0)
+                total_count = len(total_items)
+                
+                for idx, item in enumerate(total_items):
+                    prog_bar.progress((idx + 1) / total_count)
+                    
+                    if hasattr(item, 'read'): 
+                        fname = item.name
+                        b_img, orig_w, orig_h, err, b64_str = resize_image_klook_standard(item, align_map[c_align])
+                    else: 
+                        fname = f"web_image_{idx}.jpg"
+                        try:
+                            headers = {'User-Agent': 'Mozilla/5.0'}
+                            resp = requests.get(item, headers=headers, timeout=10)
+                            b_img, orig_w, orig_h, err, b64_str = resize_image_klook_standard(resp.content, align_map[c_align])
+                        except: 
+                            b_img, orig_w, orig_h, err, b64_str = None, 0, 0, None, None
+                    
+                    if b_img:
+                        zf.writestr(f"resized_{fname}", b_img)
+                        
+                        caption_text = ""
+                        if enable_captions and keys:
+                            caption_text = call_gemini_caption(b_img, random.choice(keys), context_str=manual_context)
+                        
+                        st.session_state['processed_images_data'].append({
+                            "fname": fname,
+                            "b_img": b_img,
+                            "orig_w": orig_w,
+                            "orig_h": orig_h,
+                            "caption": caption_text,
+                            "b64_string": b64_str, 
+                            "idx": idx
+                        })
+                        
+            st.session_state['zip_buffer'] = zip_buf.getvalue()
+            st.success("✅ All images processed successfully!")
+
+    if st.session_state.get('processed_images_data'):
+        for item in st.session_state['processed_images_data']:
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                st.image(item["b_img"], caption=item["fname"], use_container_width=True)
+            with c2:
+                with st.container(border=True):
+                    ow = item.get("orig_w", 0)
+                    oh = item.get("orig_h", 0)
+                    
+                    qc_1, qc_2 = st.columns(2)
+                    qc_1.write(f"📏 **Uploaded Size:** {ow} x {oh}")
+                    
+                    if ow < 1280 or oh < 800:
+                         qc_2.error("⚠️ 🔴 Source Low Resolution (Tool had to upscale/stretch the original)")
+                    elif ow == 1280 and oh == 800:
+                         qc_2.success("✅ Perfect Match (Original was exact standard size)")
+                    else:
+                         qc_2.info("✅ Standard Fit (Original was large enough, lost slight detail to downscale)")
+                
+                st.text_area(f"Caption for {item['fname']}", value=item["caption"], height=100, key=f"cap_{item['idx']}")
+                
+                st.download_button(
+                    label=f"⬇️ Download {item['fname']}",
+                    data=item["b_img"],
+                    file_name=f"resized_{item['fname']}",
+                    mime="image/jpeg",
+                    key=f"btn_{item['idx']}"
+                )
+            st.divider()
+            
+        if st.session_state.get('zip_buffer'):
+            st.download_button("⬇️ Download All (ZIP)", st.session_state['zip_buffer'], "klook_images.zip", "application/zip")
+
+with t6:
+    st.header("📝 Grammar Checker (American English)")
+    st.info("Paste your text below to correct grammar and check word count.")
+    
+    text_input = st.text_area("Paste text here:", height=200, key="grammar_input")
+    
+    if st.button("Fix Grammar & Count Words"):
+        keys = get_all_keys()
+        if not keys: st.error("❌ No API Keys"); st.stop()
+        if not text_input: st.warning("⚠️ Please enter text first."); st.stop()
+        
+        with st.spinner("Analyzing and Correcting Grammar..."):
+            grammar_res = fix_grammar_american(text_input, keys)
+            
+            if "error" in grammar_res:
+                st.error(grammar_res["error"])
+            else:
+                fixed_text = grammar_res.get("corrected_text", "")
+                errors_list = grammar_res.get("errors_found", [])
+                
+                wc_original = len(text_input.split())
+                wc_fixed = len(fixed_text.split())
+                char_count = len(fixed_text)
+                
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Original Words", wc_original)
+                c2.metric("Result Words", wc_fixed, delta=wc_fixed-wc_original)
+                c3.metric("Character Count", char_count)
+                
+                st.divider()
+                
+                out_col1, out_col2 = st.columns([2, 1])
+                
+                with out_col1:
+                    st.subheader("✅ Corrected Text")
+                    st.text_area("Result (Copy from here):", value=fixed_text, height=250, label_visibility="collapsed")
+                
+                with out_col2:
+                    st.subheader("🔍 Errors Fixed")
+                    with st.container(height=250):
+                        if errors_list:
+                            for err in errors_list:
+                                st.markdown(f"**❌ {err.get('original', '')}** \n**✅ {err.get('correction', '')}** \n*{err.get('reason', '')}*")
+                                st.markdown("---")
+                        else:
+                            st.success("No grammatical errors found! Your text was perfect.")
+                            
+                st.success("Correction Complete!")
+
+with t7:
+    st.header("🔎 Activity Similarity Check")
+    st.info("Paste a competitor's tour link or type the activity name to check if it already exists on Klook.")
+    
+    klook_search_input = st.text_input("Paste Tour Link or Name:", key="klook_search_tab")
+    
+    if klook_search_input:
+        query_text = klook_search_input
+        
+        if klook_search_input.startswith("http"):
+            try:
+                parsed = urllib.parse.urlparse(klook_search_input)
+                path_segments = [seg for seg in parsed.path.split('/') if seg]
+                if path_segments:
+                    slug = path_segments[-1]
+                    slug = slug.split('.')[0]
+                    query_text = slug.replace('-', ' ').replace('_', ' ').title()
+                else:
+                    query_text = parsed.netloc.replace('www.', '')
+            except:
+                pass 
+        
+        st.write(f"**Extracted Search Term:** `{query_text}`")
+        
+        encoded_google_term = urllib.parse.quote(f"site:klook.com {query_text}")
+        google_klook_url = f"https://www.google.com/search?q={encoded_google_term}"
+        
+        encoded_direct_term = urllib.parse.quote(query_text)
+        direct_klook_url = f"https://www.klook.com/search/result/?query={encoded_direct_term}"
+        
+        st.markdown("### 🚀 Search Options")
+        c1, c2, c3 = st.columns([1, 1, 1])
+        with c1: 
+            st.link_button("🟠 Google Search (site:klook.com)", google_klook_url, use_container_width=True)
+        with c2: 
+            st.link_button("🟠 Direct Search on Klook", direct_klook_url, use_container_width=True)
+        with c3:
+            st.empty() 
+
+# --- ALWAYS RENDER IF DATA EXISTS ---
+if st.session_state['gen_result']:
+    render_output(st.session_state['gen_result'], st.session_state['url_input'])
