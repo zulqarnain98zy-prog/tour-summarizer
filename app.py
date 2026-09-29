@@ -1242,4 +1242,24 @@ def smart_rotation_wrapper(text, keys, lang="English"):
                 continue
                 
             try:
-                clean_result = result.replace("```json", "").replace("
+                # The line goes right here!
+                clean_result = result.replace("```json", "").replace("```", "").strip()
+                d = json.loads(clean_result)
+                
+                if "basic_info" in d and "highlights" in d["basic_info"]:
+                    d["basic_info"]["highlights"] = [h.rstrip('.') for h in d["basic_info"]["highlights"]]
+                
+                if "basic_info" in d and "what_to_expect" in d["basic_info"]:
+                    wte = d["basic_info"]["what_to_expect"]
+                    if wte.endswith("."): wte = wte[:-1]
+                    d["basic_info"]["what_to_expect"] = wte
+                
+                processed_json = json.dumps(d)
+                return processed_json
+                
+            except: 
+                pass
+            
+            return result
+            
+    return f"⚠️ AI Failed. Last Error: {last_error}"
