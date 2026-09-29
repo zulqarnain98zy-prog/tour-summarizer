@@ -129,7 +129,6 @@ def generate_static_html_preview(data):
     it = data.get("klook_itinerary", {})
     packages = data.get("packages", [])
     
-    # Safely extract primitive values from basic_info
     title = b.get("activity_title", "Generated Activity")
     city = b.get("city_country", "Location")
     address = b.get("address", "TBC")
@@ -137,7 +136,6 @@ def generate_static_html_preview(data):
     wte = b.get("what_to_expect", "")
     attractions = b.get("main_attractions", "")
     
-    # Grab data from the first package as the default display for the UI preview
     pkg_default = packages[0] if packages else {}
     group_type = pkg_default.get("group_type", "Join-in")
     duration = pkg_default.get("duration", "TBC")
@@ -146,21 +144,18 @@ def generate_static_html_preview(data):
     adult_price = pri.get("adult_price", 0)
     inc = pkg_default.get("inclusions", {})
     
-    # Generate Highlights HTML
     hl_list = b.get("highlights", [])
     if isinstance(hl_list, list):
         hl_html = "".join([f'<li class="flex gap-2"><span class="text-gray-400 mt-1">•</span><span>{h}</span></li>' for h in hl_list])
     else:
         hl_html = ""
 
-    # Generate Selling Points HTML
     sp_list = b.get("selling_points", [])
     if isinstance(sp_list, list):
         sp_html = "".join([f'<span class="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full">{s}</span>' for s in sp_list])
     else:
         sp_html = ""
 
-    # Generate Inclusions/Exclusions HTML (from first package)
     inc_list = inc.get("included", [])
     if isinstance(inc_list, list):
         inc_html = "".join([f'<li>{i}</li>' for i in inc_list])
@@ -173,7 +168,6 @@ def generate_static_html_preview(data):
     else:
         exc_html = ""
 
-    # Generate Itinerary HTML
     seg_list = it.get("segments", [])
     seg_html = ""
     if isinstance(seg_list, list):
@@ -363,7 +357,6 @@ def resize_image_klook_standard(image_input, alignment=(0.5, 0.5)):
     except Exception as e:
         return None, 0, 0, f"Error processing image: {e}", None
 
-# --- CUSTOM SSL ADAPTER ---
 class LegacySSLAdapter(HTTPAdapter):
     def init_poolmanager(self, connections, maxsize, block=False):
         ctx = ssl.create_default_context()
@@ -468,7 +461,6 @@ def extract_data_from_url(url):
     except Exception as e: 
         return None, f"CONNECTION ERROR: {str(e)}\n\n💡 Tip: This site might be blocking bots. Try pasting the text manually in the 'Text Summary' tab."
 
-# --- ROBUST PDF READER ---
 def extract_text_from_pdf(uploaded_file):
     text = ""
     error_log = ""
@@ -499,7 +491,6 @@ def extract_text_from_pdf(uploaded_file):
     
     return text[:35000]
 
-# --- PDF GENERATOR ---
 def create_pdf(data):
     if not HAS_REPORTLAB:
         return None
@@ -545,7 +536,6 @@ def create_pdf(data):
     return buffer.getvalue()
 
 
-# --- SMART MODEL FINDER ---
 @st.cache_data(ttl=86400, show_spinner=False)
 def get_working_model_name(api_key):
     genai.configure(api_key=api_key)
@@ -567,7 +557,6 @@ def sanitize_text(text):
     text = text.encode('utf-8', 'ignore').decode('utf-8')
     return text.replace("\\", "\\\\")[:35000]
 
-# --- KLOOK SELLING POINTS LIST ---
 SELLING_POINTS_LIST = """
 Interactive, Romantic, Customizable, Guided, Private, Skip-the-line, Small Group, VIP, All Inclusive, 
 Architecture, Canal, Cultural, Historical, Movie, Museum, Music, Religious Site, Pilgrimage, Spiritual, Temple, UNESCO site, Local Village, Old Town, 
@@ -583,7 +572,6 @@ Hot Spring, Beach, Yoga, Meditation,
 City, Countryside, Night, Shopping, Sightseeing, Photography, Self-guided, Shore Excursion, Adventure, Discovery, Backstreets, Hidden Gems
 """
 
-# --- GEMINI CALLS (UPDATED PROMPT FOR PACKAGES ARRAY + ADDRESS/HOURS) ---
 def call_gemini_json_summary(text, api_key, target_lang="English"):
     model_name = get_working_model_name(api_key)
     if not model_name: return "Error: No available Gemini models found."
@@ -605,7 +593,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     3. **NO FULL STOP:** The 'what_to_expect' paragraph MUST NOT end with a full stop (period).
     4. **POINT OF VIEW:** NEVER use first-person pronouns ("we", "us", "our"). Replace them with "The operator".
     
-    **PACKAGE & TIER EXTRACTION (CRITICAL NEW RULE):**
+    **PACKAGE & TIER EXTRACTION:**
     - Scan the text for distinct ticket tiers, pricing options, or tour variations (e.g., "Standard", "VIP", "Without Transfer").
     - For EVERY distinct option found, create a separate object inside the `packages` array.
     - If there is only one option, create an array with a single package object named "Standard Package".
@@ -628,8 +616,8 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
         "basic_info": {{
             "activity_title": "The exact title generated using the strict rules above",
             "city_country": "City, Country",
-            "address": "Exact street address or meeting point found in text",
-            "opening_hours": "Operating/Opening hours if mentioned (e.g., '09:00 - 17:00' or 'Check official site')",
+            "address": "Extract exact street address if explicitly mentioned in text, otherwise output 'To be confirmed'",
+            "opening_hours": "Extract operating/opening hours if explicitly mentioned in text, otherwise output 'To be confirmed'",
             "main_attractions": "Tour Name",
             "highlights": ["Highlight 1 (10-12 words)", "Highlight 2 (10-12 words)", "Highlight 3", "Highlight 4"],
             "what_to_expect": "Strictly 100-120 words and max 800 chars. No final full stop",
@@ -676,7 +664,31 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
 
-# --- REGENERATE DESCRIPTION ONLY ---
+# --- SMART FALLBACK SEARCH ALGORITHM ---
+def fetch_missing_details(activity_name, city, target_info, api_key):
+    """Fires a targeted AI prompt specifically to grab missing info to inject into the payload."""
+    model_name = get_working_model_name(api_key)
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel(model_name, generation_config={"response_mime_type": "application/json"})
+    
+    prompt = f"""
+    Search your knowledge base for the {target_info} of the attraction/activity named "{activity_name}" in "{city}".
+    Return a strict JSON format. 
+    If you find it, provide the result and the likely official URL or source. If you cannot find it, return "Not found online".
+    {{
+        "result": "The exact {target_info}",
+        "source": "https://www.official-website.com"
+    }}
+    """
+    try:
+        response = model.generate_content(prompt)
+        clean_json = response.text.strip()
+        if clean_json.startswith("```json"): clean_json = clean_json[7:]
+        if clean_json.endswith("```"): clean_json = clean_json[:-3]
+        return json.loads(clean_json)
+    except:
+        return {"result": "Could not find info", "source": ""}
+
 def regenerate_description_only(text, api_key, lang="English"):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
@@ -700,7 +712,6 @@ def regenerate_description_only(text, api_key, lang="English"):
         return response.text.strip()
     except: return "Error regenerating description."
 
-# --- GRAMMAR CHECKER FUNCTION ---
 def fix_grammar_american(text, keys):
     if not keys: return {"error": "AI Error: No API keys found."}
     
@@ -750,7 +761,6 @@ def fix_grammar_american(text, keys):
             
     return {"error": f"AI Error: All keys exhausted. Last error: {last_error}"}
 
-# --- EMAIL DRAFTER ---
 def call_gemini_email_draft(json_data, api_key):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
@@ -761,7 +771,6 @@ def call_gemini_email_draft(json_data, api_key):
         return response.text
     except: return "Error generating email."
 
-# --- CAPTION GENERATOR ---
 def call_gemini_caption(image_bytes, api_key, context_str=""):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
@@ -776,14 +785,12 @@ def call_gemini_caption(image_bytes, api_key, context_str=""):
     except Exception as e: 
         return f"Caption Failed: {str(e)}"
 
-# --- HELPER: RENDER COPY BOX ---
 def copy_box(label, text, height=None):
     if not text: return
     safe_text = romanize_text(str(text)) if text else ""
     st.caption(f"**{label}**")
     st.code(safe_text, language="text") 
 
-# --- POPUP DIALOG FUNCTION (UPDATED FOR PACKAGES & ADDRESS/HOURS) ---
 @st.dialog("📋 Full Data for Copy-Paste")
 def show_copy_dialog(data):
     info = data.get("basic_info", {})
@@ -855,7 +862,6 @@ def show_copy_dialog(data):
     contact_clean = clean(pol.get('merchant_contact')).replace(' | ', '\n').replace('|', '\n')
     st.code(contact_clean, language='text')
 
-# --- UI RENDERER ---
 def render_output(json_text, url_input=None):
     if json_text == "429_LIMIT":
         st.error("⏳ Quota Exceeded. Please wait 1 minute.")
@@ -913,8 +919,44 @@ def render_output(json_text, url_input=None):
     with tabs[0]:
         st.subheader(f"🎟️ {info.get('activity_title', 'Activity Title (Not Generated)')}")
         st.write(f"**📍 Location:** {info.get('city_country')}")
-        st.write(f"**🗺️ Address:** {info.get('address', 'To be confirmed')}")
-        st.write(f"**🕒 Opening Hours:** {info.get('opening_hours', 'To be confirmed')}")
+        
+        # --- ADDRESS ROW ---
+        col_a1, col_a2 = st.columns([3, 1])
+        with col_a1:
+            st.write(f"**🗺️ Address:** {info.get('address', 'To be confirmed')}")
+            if info.get('address_source'):
+                st.caption(f"*Source: {info.get('address_source')}*")
+        with col_a2:
+            if "confirmed" in str(info.get('address', '')).lower() or not info.get('address'):
+                if st.button("🔍 Search Address AI", use_container_width=True):
+                    keys = get_all_keys()
+                    if keys:
+                        with st.spinner("Searching..."):
+                            res = fetch_missing_details(info.get('main_attractions'), info.get('city_country'), "exact street address", keys[0])
+                            data_obj = json.loads(st.session_state['gen_result'])
+                            data_obj["basic_info"]["address"] = res.get("result", "Not found")
+                            data_obj["basic_info"]["address_source"] = res.get("source", "")
+                            st.session_state['gen_result'] = json.dumps(data_obj)
+                            st.rerun()
+
+        # --- OPENING HOURS ROW ---
+        col_h1, col_h2 = st.columns([3, 1])
+        with col_h1:
+            st.write(f"**🕒 Opening Hours:** {info.get('opening_hours', 'To be confirmed')}")
+            if info.get('hours_source'):
+                st.caption(f"*Source: {info.get('hours_source')}*")
+        with col_h2:
+            if "confirmed" in str(info.get('opening_hours', '')).lower() or not info.get('opening_hours'):
+                if st.button("🔍 Search Hours AI", use_container_width=True):
+                    keys = get_all_keys()
+                    if keys:
+                        with st.spinner("Searching..."):
+                            res = fetch_missing_details(info.get('main_attractions'), info.get('city_country'), "opening hours", keys[0])
+                            data_obj = json.loads(st.session_state['gen_result'])
+                            data_obj["basic_info"]["opening_hours"] = res.get("result", "Not found")
+                            data_obj["basic_info"]["hours_source"] = res.get("source", "")
+                            st.session_state['gen_result'] = json.dumps(data_obj)
+                            st.rerun()
         
         st.write(f"**📦 Packages Found ({len(packages)}):**")
         for p in packages:
@@ -1149,7 +1191,6 @@ def render_output(json_text, url_input=None):
                 html_code = generate_static_html_preview(extension_payload)
                 components.html(html_code, height=850, scrolling=True)
 
-# --- SMART ROTATION (FIXED ERROR EXPOSURE) ---
 def smart_rotation_wrapper(text, keys, lang="English"):
     if not keys: return "⚠️ No API keys found."
     
@@ -1198,7 +1239,6 @@ with st.sidebar:
     target_lang = st.selectbox("🌐 Target Language", ["English", "Chinese (Traditional)", "Chinese (Simplified)", "Korean", "Japanese", "Thai", "Vietnamese", "Indonesian"])
     st.divider()
 
-# NOTE: The "Merchant Screening Tool" tab was removed from this list per your earlier request to make it run faster.
 t1, t2, t3, t4, t6, t7 = st.tabs(["🧠 Link Summary", "✍🏻 Text Summary", "📄 PDF Summary", "🖼️ Photo Resizer", "📝 Grammar Check", "🔎 Klook Search"])
 
 with t1:
