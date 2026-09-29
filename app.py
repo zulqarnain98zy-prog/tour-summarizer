@@ -663,6 +663,7 @@ def call_gemini_json_summary(text, api_key, target_lang="English"):
     except ResourceExhausted: return "429_LIMIT"
     except Exception as e: return f"AI Error: {str(e)}"
 
+# --- SMART FALLBACK SEARCH ALGORITHM ---
 def fetch_missing_details(activity_name, city, target_info, api_key):
     model_name = get_working_model_name(api_key)
     genai.configure(api_key=api_key)
@@ -671,10 +672,10 @@ def fetch_missing_details(activity_name, city, target_info, api_key):
     prompt = f"""
     Search your knowledge base for the {target_info} of the attraction/activity named "{activity_name}" in "{city}".
     Return a strict JSON format. 
-    If you find it, provide the result and the likely official URL or source. If you cannot find it, return "Not found online".
+    If you find it, provide the result and the domain name of the likely official source or where you found it (e.g., "Trip.com", "Google Maps", "Official Website"). If you cannot find it, return "Not found".
     {{
         "result": "The exact {target_info}",
-        "source": "https://www.official-website.com"
+        "source": "Domain Name"
     }}
     """
     try:
@@ -684,7 +685,7 @@ def fetch_missing_details(activity_name, city, target_info, api_key):
         if clean_json.endswith("```"): clean_json = clean_json[:-3]
         return json.loads(clean_json)
     except:
-        return {"result": "Could not find info", "source": ""}
+        return {"result": "Not found", "source": ""}
 
 def regenerate_description_only(text, api_key, lang="English"):
     model_name = get_working_model_name(api_key)
@@ -899,6 +900,8 @@ def render_output(json_text, url_input=None):
     with st.sidebar:
         st.header("📋 Copy Dashboard")
         copy_box("📍 Location", info.get('city_country'))
+        copy_box("📍 Address", info.get('address'))
+        copy_box("🕒 Opening Hours", info.get('opening_hours'))
         copy_box("🏷️ Name", info.get('main_attractions'))
         contact_text = str(pol.get('merchant_contact', '')).replace(' | ', '\n').replace('|', '\n')
         copy_box("📞 Contact", contact_text)
@@ -931,32 +934,66 @@ def render_output(json_text, url_input=None):
         st.markdown("### 📍 Merchant Venue & Operating Hours")
         st.caption("Edit these fields directly to match the Klook backend format.")
         
-        col_edit, col_ai = st.columns([3, 1])
-        with col_edit:
-            new_address = st.text_input("📍 Address", value=info.get("address", "To be confirmed"))
-            new_hours = st.text_input("🕒 Opening Hours", value=info.get("opening_hours", "To be confirmed"))
+        # ADDRESS ROW
+        new_address = st.text_input("📍 Address", value=info.get("address", "To be confirmed"))
+        if new_address != info.get("address"):
+            data["basic_info"]["address"] = new_address
+            st.session_state['gen_result'] = json.dumps(data)
             
-            # Update the data dictionary silently so Tab 10 catches the edits
-            if new_address != info.get("address") or new_hours != info.get("opening_hours"):
-                data["basic_info"]["address"] = new_address
-                data["basic_info"]["opening_hours"] = new_hours
-                st.session_state['gen_result'] = json.dumps(data)
-                
-        with col_ai:
-            st.write("") # Padding for alignment
-            st.write("")
-            if st.button("🔍 Search Info AI", use_container_width=True, key="search_info_btn"):
+        c_a1, c_a2, c_a3 = st.columns(3)
+        with c_a1:
+            if st.button("🪄 Format Address", use_container_width=True, key="fmt_addr"):
+                st.info("Formatting feature coming soon!") # Placeholder for your future Klook rules
+        with c_a2:
+            if st.button("🔍 Search Address AI", use_container_width=True, key="ai_addr"):
                 keys = get_all_keys()
                 if keys:
                     with st.spinner("Searching for missing info..."):
                         a_res = fetch_missing_details(info.get('main_attractions'), info.get('city_country'), "exact street address", keys[0])
-                        h_res = fetch_missing_details(info.get('main_attractions'), info.get('city_country'), "opening hours", keys[0])
-                        
+                        val = a_res.get("result", "Not found")
+                        src = a_res.get("source", "")
+                        if src and "Not found" not in val:
+                            val = f"{val} (Source: {src})"
+                            
                         data_obj = json.loads(st.session_state['gen_result'])
-                        data_obj["basic_info"]["address"] = a_res.get("result", "Not found")
-                        data_obj["basic_info"]["opening_hours"] = h_res.get("result", "Not found")
+                        data_obj["basic_info"]["address"] = val
                         st.session_state['gen_result'] = json.dumps(data_obj)
                         st.rerun()
+        with c_a3:
+            q_addr = f"{info.get('main_attractions', '')} {info.get('city_country', '')} address"
+            st.link_button("🌐 Google Search", f"https://www.google.com/search?q={urllib.parse.quote(q_addr)}", use_container_width=True)
+
+        st.write("") # Spacer
+
+        # OPENING HOURS ROW
+        new_hours = st.text_input("🕒 Opening Hours", value=info.get("opening_hours", "To be confirmed"))
+        if new_hours != info.get("opening_hours"):
+            data["basic_info"]["opening_hours"] = new_hours
+            st.session_state['gen_result'] = json.dumps(data)
+            
+        c_h1, c_h2, c_h3 = st.columns(3)
+        with c_h1:
+            if st.button("🪄 Format Hours", use_container_width=True, key="fmt_hrs"):
+                st.info("Formatting feature coming soon!") # Placeholder for your future Klook rules
+        with c_h2:
+            if st.button("🔍 Search Hours AI", use_container_width=True, key="ai_hrs"):
+                keys = get_all_keys()
+                if keys:
+                    with st.spinner("Searching for missing info..."):
+                        h_res = fetch_missing_details(info.get('main_attractions'), info.get('city_country'), "opening hours", keys[0])
+                        val = h_res.get("result", "Not found")
+                        src = h_res.get("source", "")
+                        if src and "Not found" not in val:
+                            val = f"{val} (Source: {src})"
+                            
+                        data_obj = json.loads(st.session_state['gen_result'])
+                        data_obj["basic_info"]["opening_hours"] = val
+                        st.session_state['gen_result'] = json.dumps(data_obj)
+                        st.rerun()
+        with c_h3:
+            q_hours = f"{info.get('main_attractions', '')} {info.get('city_country', '')} opening hours"
+            st.link_button("🌐 Google Search", f"https://www.google.com/search?q={urllib.parse.quote(q_hours)}", use_container_width=True)
+
         # -----------------------------------------------------------
         
         st.divider()
